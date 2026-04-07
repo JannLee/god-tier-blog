@@ -1,0 +1,61 @@
+---
+title: "GitHub Pages 블로그 구성기"
+date: "2026-04-06"
+description: "Next.js 정적 내보내기로 GitHub Pages 블로그를 구성한 과정을 공유합니다."
+tags: ["github-pages", "next.js", "deployment", "ci-cd"]
+draft: false
+---
+
+# GitHub Pages 블로그 구성기
+
+Next.js `output: 'export'`를 사용해 GitHub Pages에 배포하는 방법을 정리합니다.
+
+## next.config.ts 핵심 설정
+
+```ts
+const nextConfig: NextConfig = {
+  output: "export",
+  trailingSlash: true,
+  images: {
+    unoptimized: true,
+  },
+}
+```
+
+- `output: "export"` — 빌드 결과물을 정적 HTML/CSS/JS로 내보냅니다
+- `trailingSlash: true` — GitHub Pages의 경로 규칙과 맞춥니다
+- `images.unoptimized: true` — Next.js Image Optimization은 서버가 필요하므로 비활성화
+
+## GitHub Actions 배포 설정
+
+`.github/workflows/deploy.yml`을 생성해 `main` 브랜치 푸시 시 자동 배포되도록 합니다.
+
+```yaml
+name: Deploy to GitHub Pages
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out/
+      - uses: actions/deploy-pages@v4
+```
+
+## 주의사항
+
+- `public/` 폴더에 `.nojekyll` 파일을 추가해야 `_next/` 경로가 올바르게 서빙됩니다
+- 커스텀 도메인이 없으면 `basePath`를 레포지토리 이름으로 설정해야 합니다
+
+이 설정으로 `pnpm build` 후 `out/` 폴더가 생성되고 GitHub Pages에서 서빙됩니다.
