@@ -8,14 +8,30 @@ export default function GlobalError({
 }) {
   return (
     <html lang="ko">
-      <body className="flex min-h-screen items-center justify-center p-4">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+      <body
+        style={{
+          display: "flex",
+          minHeight: "100vh",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: "sans-serif",
+          margin: 0,
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "1rem" }}>
             오류가 발생했습니다
           </h2>
           <button
             onClick={reset}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+            style={{
+              padding: "0.5rem 1rem",
+              backgroundColor: "#2563eb",
+              color: "#fff",
+              border: "none",
+              borderRadius: "0.25rem",
+              cursor: "pointer",
+            }}
           >
             다시 시도
           </button>
