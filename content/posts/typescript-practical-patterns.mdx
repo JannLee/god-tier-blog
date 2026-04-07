@@ -1,0 +1,123 @@
+---
+title: "TypeScript 실전 패턴 — 타입으로 버그를 미리 잡는 법"
+date: "2026-04-08"
+description: "실무에서 자주 쓰이는 TypeScript 패턴을 소개합니다. 브랜드 타입, 템플릿 리터럴 타입, satisfies 연산자 등으로 컴파일 시점에 버그를 제거하는 방법을 알아봅니다."
+tags: ["typescript", "patterns", "type-safety"]
+draft: false
+---
+
+# TypeScript 실전 패턴 — 타입으로 버그를 미리 잡는 법
+
+TypeScript를 쓰는 이유는 단순히 자동완성 때문만이 아닙니다. 잘 쓰면 **런타임 오류를 컴파일 시점에 잡을 수 있습니다.** 오늘은 실무에서 바로 적용 가능한 패턴 세 가지를 정리합니다.
+
+---
+
+## 1. 브랜드 타입 (Branded Types)
+
+`string`은 `string`입니다. 그런데 실무에서는 "사용자 ID인 문자열"과 "주문 ID인 문자열"을 구별해야 할 때가 있습니다. 그냥 `string`으로 두면 아무 문자열이나 들어와도 컴파일러는 에러를 내지 않습니다.
+
+```ts
+// ❌ 취약한 코드 — 잘못된 ID를 넘겨도 에러 없음
+function getOrder(orderId: string) { /* ... */ }
+const userId = "user-123"
+getOrder(userId) // 컴파일 통과, 런타임 버그
+```
+
+**브랜드 타입**으로 이 문제를 해결합니다:
+
+```ts
+type Brand<T, B extends string> = T & { readonly __brand: B }
+
+type UserId  = Brand<string, "UserId">
+type OrderId = Brand<string, "OrderId">
+
+function getOrder(orderId: OrderId) { /* ... */ }
+
+const userId = "user-123" as UserId
+getOrder(userId) // ✅ 컴파일 에러! OrderId가 아닙니다
+```
+
+**언제 쓰나요?**  
+ID 필드가 여러 도메인에 걸쳐 혼용될 가능성이 있을 때, 또는 원시값(primitive)을 의미론적으로 구분해야 할 때 사용합니다.
+
+---
+
+## 2. 템플릿 리터럴 타입 (Template Literal Types)
+
+API 경로나 이벤트 이름처럼 **구조가 정해진 문자열**을 타입으로 표현할 수 있습니다.
+
+```ts
+type HttpMethod = "GET" | "POST" | "PUT" | "DELETE"
+type ApiPath    = `/api/${string}`
+
+type Route = `${HttpMethod} ${ApiPath}`
+
+const route: Route = "GET /api/users"      // ✅
+const bad: Route   = "PATCH /api/users"    // ❌ 컴파일 에러
+const bad2: Route  = "GET users"           // ❌ /api/ 가 없음
+```
+
+이를 응용하면 이벤트 시스템도 타입 안전하게 만들 수 있습니다:
+
+```ts
+type EventMap = {
+  "user:created": { id: string; name: string }
+  "order:completed": { orderId: string; total: number }
+}
+
+type EventName = keyof EventMap
+
+function emit<E extends EventName>(event: E, payload: EventMap[E]) {
+  // ...
+}
+
+emit("user:created", { id: "u1", name: "Alice" }) // ✅
+emit("user:created", { orderId: "o1", total: 0 }) // ❌ 컴파일 에러
+```
+
+---
+
+## 3. `satisfies` 연산자 (TypeScript 4.9+)
+
+`as const`를 쓰면 타입 추론이 너무 좁아지고, 타입 어노테이션을 쓰면 추론이 사라집니다. `satisfies`는 **두 마리 토끼를 다 잡습니다**: 타입 검사는 하되, 추론은 보존합니다.
+
+```ts
+type Config = {
+  port: number
+  host: string
+  features: Record<string, boolean>
+}
+
+// ❌ 타입 어노테이션 — config.features.darkMode의 타입이 boolean (너무 넓음)
+const config: Config = {
+  port: 3000,
+  host: "localhost",
+  features: { darkMode: true, beta: false },
+}
+
+// ✅ satisfies — 타입 검사 + 정확한 추론 유지
+const config2 = {
+  port: 3000,
+  host: "localhost",
+  features: { darkMode: true, beta: false },
+} satisfies Config
+
+// config2.features.darkMode의 타입은 true (리터럴 타입 보존)
+// 오타가 있으면 컴파일 에러 발생
+```
+
+실무에서 `satisfies`는 설정 객체, 라우트 맵, 색상 팔레트 같이 **값은 구체적으로, 타입은 제약으로만** 쓰고 싶을 때 특히 유용합니다.
+
+---
+
+## 정리
+
+| 패턴 | 문제 해결 | 핵심 |
+|------|-----------|------|
+| 브랜드 타입 | 동일 원시 타입 혼용 방지 | 의미론적 구별 |
+| 템플릿 리터럴 | 구조 있는 문자열 타입 | 패턴 강제 |
+| `satisfies` | 추론 보존 + 타입 검사 | 타입 제약만 적용 |
+
+TypeScript는 쓸수록 "방어막"이 되어줍니다. 처음에는 번거로워 보여도, 나중에 런타임 오류를 디버깅하는 시간보다 훨씬 적게 씁니다.
+
+다음 포스트에서는 **React Server Components를 깊게 이해하는** 내용으로 돌아오겠습니다.
