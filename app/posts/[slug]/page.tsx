@@ -4,9 +4,12 @@ import { compileMDX } from "next-mdx-remote/rsc";
 import rehypeSlug from "rehype-slug";
 import rehypePrettyCode from "rehype-pretty-code";
 import { visit } from "unist-util-visit";
-import { getAllPosts, getPostBySlug } from "@/lib/posts";
+import { getAllPosts, getPostBySlug, getAdjacentPosts, getRelatedPosts } from "@/lib/posts";
 import TableOfContents, { type Heading } from "@/components/TableOfContents";
 import CodeBlock from "@/components/CodeBlock";
+import PostCard from "@/components/PostCard";
+import ScrollProgress from "@/components/ScrollProgress";
+import BackToTop from "@/components/BackToTop";
 import { SITE } from "@/lib/site";
 
 export async function generateStaticParams() {
@@ -96,7 +99,7 @@ export default async function PostPage({
 
   if (!post) notFound();
 
-  const { frontmatter, content } = post;
+  const { frontmatter, content, readingTimeMin } = post;
   const headings: Heading[] = [];
 
   const { content: mdxContent } = await compileMDX({
@@ -106,12 +109,16 @@ export default async function PostPage({
         rehypePlugins: [
           rehypeSlug,
           makeRehypeExtractHeadings(headings),
-          [rehypePrettyCode, { theme: "github-dark", keepBackground: true }],
+          // P0: dual theme — github-light in light mode, github-dark in dark mode
+          [rehypePrettyCode, { theme: { light: "github-light", dark: "github-dark" }, keepBackground: true }],
         ],
       },
     },
     components: { pre: CodeBlock },
   });
+
+  const adjacentPosts = getAdjacentPosts(slug);
+  const relatedPosts = getRelatedPosts(slug, frontmatter.tags);
 
   // All values from trusted MDX frontmatter + compile-time SITE constant.
   // JSON.stringify escapes all special characters — XSS is not possible here.
@@ -151,6 +158,24 @@ export default async function PostPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLd }}
       />
+
+      {/* P2: scroll progress bar & back-to-top */}
+      <ScrollProgress />
+      <BackToTop />
+
+      {/* P1: breadcrumb */}
+      <nav aria-label="breadcrumb" className="flex items-center gap-1.5 text-sm text-[var(--fg-muted)] mb-3">
+        <Link href="/" className="hover:text-[var(--accent)] transition-colors">홈</Link>
+        {frontmatter.category && (
+          <>
+            <span aria-hidden="true">/</span>
+            <span className="capitalize">{frontmatter.category}</span>
+          </>
+        )}
+        <span aria-hidden="true">/</span>
+        <span className="text-[var(--fg)] truncate max-w-[240px]">{frontmatter.title}</span>
+      </nav>
+
       <Link
         href="/"
         className="text-sm text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors mb-8 inline-block"
@@ -169,6 +194,9 @@ export default async function PostPage({
               <time className="text-sm text-[var(--fg-muted)]" dateTime={frontmatter.date}>
                 {formatDate(frontmatter.date)}
               </time>
+              {/* P1: reading time */}
+              <span className="text-[var(--fg-muted)] text-sm" aria-hidden="true">·</span>
+              <span className="text-sm text-[var(--fg-muted)]">읽기 {readingTimeMin}분</span>
               {frontmatter.tags.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {frontmatter.tags.map((tag) => (
@@ -185,8 +213,9 @@ export default async function PostPage({
           </header>
 
           {/* Prose content — dark-mode aware via CSS variables */}
+          {/* P0: text-base (16px) — was 14px default */}
           <article className="
-            text-[var(--fg-secondary)] leading-relaxed
+            text-base text-[var(--fg-secondary)] leading-relaxed
             [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-[var(--fg)] [&_h1]:mt-8 [&_h1]:mb-4
             [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:text-[var(--fg)] [&_h2]:mt-8 [&_h2]:mb-3
             [&_h3]:text-lg [&_h3]:font-medium [&_h3]:text-[var(--fg)] [&_h3]:mt-5 [&_h3]:mb-2
@@ -206,11 +235,45 @@ export default async function PostPage({
           ">
             {mdxContent}
           </article>
+
+          {/* P1: prev/next navigation */}
+          <nav aria-label="포스트 탐색" className="mt-12 pt-6 border-t border-[var(--border)] flex justify-between gap-6">
+            {adjacentPosts.prev ? (
+              <Link href={`/posts/${adjacentPosts.prev.slug}/`} className="flex-1 group min-w-0">
+                <p className="text-xs text-[var(--fg-muted)] mb-1">← 이전 포스트</p>
+                <p className="text-sm font-medium text-[var(--fg)] group-hover:text-[var(--accent)] transition-colors line-clamp-2">
+                  {adjacentPosts.prev.frontmatter.title}
+                </p>
+              </Link>
+            ) : (
+              <div className="flex-1" />
+            )}
+            {adjacentPosts.next && (
+              <Link href={`/posts/${adjacentPosts.next.slug}/`} className="flex-1 text-right group min-w-0">
+                <p className="text-xs text-[var(--fg-muted)] mb-1">다음 포스트 →</p>
+                <p className="text-sm font-medium text-[var(--fg)] group-hover:text-[var(--accent)] transition-colors line-clamp-2">
+                  {adjacentPosts.next.frontmatter.title}
+                </p>
+              </Link>
+            )}
+          </nav>
+
+          {/* P2: related posts */}
+          {relatedPosts.length > 0 && (
+            <section className="mt-12" aria-label="관련 포스트">
+              <h2 className="text-base font-semibold text-[var(--fg)] mb-4">관련 포스트</h2>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {relatedPosts.map((p) => (
+                  <PostCard key={p.slug} post={p} />
+                ))}
+              </div>
+            </section>
+          )}
         </div>
 
-        {/* ToC sidebar — shown on xl+ screens */}
+        {/* P0: ToC sidebar — lg+ (was xl+) */}
         {headings.length > 0 && (
-          <aside className="hidden xl:block w-52 shrink-0 sticky top-20 self-start max-h-[calc(100vh-6rem)] overflow-y-auto">
+          <aside className="hidden lg:block w-52 shrink-0 sticky top-20 self-start max-h-[calc(100vh-6rem)] overflow-y-auto">
             <TableOfContents headings={headings} />
           </aside>
         )}

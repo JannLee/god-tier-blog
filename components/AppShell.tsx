@@ -6,6 +6,7 @@ import ThemeToggle from './ThemeToggle'
 import Sidebar from './Sidebar'
 import SearchBar from './SearchBar'
 import type { Post } from '@/lib/posts'
+import { SITE } from '@/lib/site'
 
 function MenuIcon() {
   return (
@@ -45,7 +46,7 @@ export default function AppShell({
             href="/"
             className="text-lg font-bold text-[var(--fg)] hover:text-[var(--accent)] transition-colors"
           >
-            Blog
+            {SITE.name}
           </Link>
 
           <div className="flex-1" />
@@ -54,7 +55,7 @@ export default function AppShell({
           <nav className="hidden sm:flex items-center gap-4 text-sm text-[var(--fg-muted)]">
             <Link href="/" className="hover:text-[var(--fg)] transition-colors">홈</Link>
             <a
-              href="https://github.com"
+              href={SITE.author.url}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-[var(--fg)] transition-colors"
@@ -92,9 +93,9 @@ export default function AppShell({
       {/* Footer */}
       <footer className="border-t border-[var(--border)] bg-[var(--bg-card)]">
         <div className="mx-auto max-w-5xl px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-sm text-[var(--fg-muted)]">
-          <p>© {new Date().getFullYear()} Blog. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} {SITE.author.name}. All rights reserved.</p>
           <a
-            href="https://github.com"
+            href={SITE.author.url}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-[var(--fg)] transition-colors"

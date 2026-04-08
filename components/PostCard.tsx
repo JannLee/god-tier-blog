@@ -18,9 +18,13 @@ export default function PostCard({ post }: { post: Post }) {
           {frontmatter.title}
         </h2>
       </Link>
-      <time className="text-sm text-[var(--fg-muted)]" dateTime={frontmatter.date}>
-        {formatDate(frontmatter.date)}
-      </time>
+      <div className="flex items-center gap-2 mt-1">
+        <time className="text-sm text-[var(--fg-muted)]" dateTime={frontmatter.date}>
+          {formatDate(frontmatter.date)}
+        </time>
+        <span className="text-[var(--fg-muted)] text-sm" aria-hidden="true">·</span>
+        <span className="text-sm text-[var(--fg-muted)]">읽기 {post.readingTimeMin}분</span>
+      </div>
       <p className="mt-3 text-[var(--fg-secondary)] text-sm leading-relaxed">
         {frontmatter.description}
       </p>

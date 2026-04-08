@@ -43,3 +43,10 @@ body {
   font-family: var(--font-sans, system-ui, sans-serif);
   transition: background-color 0.15s ease, color 0.15s ease;
 }
+
+/* ── Code block dual-theme switching ───────── */
+/* rehype-pretty-code outputs two <pre> blocks when theme is an object.
+   We forward data-theme to the CodeBlock wrapper div and toggle visibility. */
+.code-block[data-theme='dark'] { display: none; }
+.dark .code-block[data-theme='dark'] { display: block; }
+.dark .code-block[data-theme='light'] { display: none; }
