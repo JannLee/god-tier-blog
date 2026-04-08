@@ -7,12 +7,11 @@ import { visit } from "unist-util-visit";
 import { getAllPosts, getPostBySlug } from "@/lib/posts";
 import TableOfContents, { type Heading } from "@/components/TableOfContents";
 import CodeBlock from "@/components/CodeBlock";
+import { SITE } from "@/lib/site";
 
 export async function generateStaticParams() {
   return getAllPosts().map((post) => ({ slug: post.slug }));
 }
-
-const BASE_URL = 'https://jannlee.github.io'
 
 export async function generateMetadata({
   params,
@@ -22,8 +21,8 @@ export async function generateMetadata({
   const { slug } = await params;
   const post = getPostBySlug(slug);
   if (!post) return {};
-  const { title, description, date } = post.frontmatter;
-  const url = `${BASE_URL}/posts/${slug}/`;
+  const { title, description, date, tags } = post.frontmatter;
+  const url = `${SITE.url}/posts/${slug}/`;
   return {
     title,
     description,
@@ -33,8 +32,11 @@ export async function generateMetadata({
       description,
       type: 'article',
       url,
+      locale: SITE.locale,
+      siteName: SITE.name,
       publishedTime: date,
-      authors: ['Jann Lee'],
+      authors: [SITE.author.name],
+      tags,
     },
     twitter: {
       card: 'summary_large_image',
@@ -111,16 +113,35 @@ export default async function PostPage({
     components: { pre: CodeBlock },
   });
 
-  // JSON.stringify escapes all output; data is trusted MDX frontmatter, not user input.
+  // All values from trusted MDX frontmatter + compile-time SITE constant.
+  // JSON.stringify escapes all special characters — XSS is not possible here.
+  const postUrl = `${SITE.url}/posts/${slug}/`;
   const jsonLd = JSON.stringify({
     "@context": "https://schema.org",
-    "@type": "TechArticle",
+    "@type": "BlogPosting",
+    mainEntityOfPage: { "@type": "WebPage", "@id": postUrl },
     headline: frontmatter.title,
     description: frontmatter.description,
-    author: { "@type": "Person", name: "Jann Lee" },
     datePublished: frontmatter.date,
-    url: `${BASE_URL}/posts/${slug}/`,
+    dateModified: frontmatter.date,
+    inLanguage: "ko",
+    url: postUrl,
     keywords: frontmatter.tags.join(", "),
+    author: {
+      "@type": "Person",
+      name: SITE.author.name,
+      url: SITE.author.url,
+    },
+    publisher: {
+      "@type": "Person",
+      name: SITE.author.name,
+      url: SITE.author.url,
+    },
+    isPartOf: {
+      "@type": "WebSite",
+      name: SITE.name,
+      url: SITE.url,
+    },
   });
 
   return (

@@ -2,21 +2,30 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { getAllPosts } from "@/lib/posts";
 import AppShell from "@/components/AppShell";
+import { SITE } from "@/lib/site";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://jannlee.github.io"),
+  metadataBase: new URL(SITE.url),
   title: {
-    default: "JannLee Blog",
-    template: "%s | JannLee Blog",
+    default: SITE.name,
+    template: `%s | ${SITE.name}`,
   },
-  description: "개발 경험과 인사이트를 기록하는 개인 블로그",
+  description: SITE.description,
+  alternates: {
+    canonical: SITE.url,
+  },
   openGraph: {
-    siteName: "JannLee Blog",
+    siteName: SITE.name,
     type: "website",
-    locale: "ko_KR",
+    locale: SITE.locale,
+    url: SITE.url,
+    title: SITE.name,
+    description: SITE.description,
   },
   twitter: {
     card: "summary_large_image",
+    title: SITE.name,
+    description: SITE.description,
   },
 };
 
@@ -28,6 +37,22 @@ const THEME_INIT_SCRIPT =
   "if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches))" +
   "{document.documentElement.classList.add('dark');}}catch(e){}";
 
+// All values come from the SITE constant (trusted compile-time config, not user input).
+// JSON.stringify escapes all special characters, so XSS is not possible here.
+const WEBSITE_JSON_LD = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: SITE.name,
+  url: SITE.url,
+  description: SITE.description,
+  inLanguage: "ko",
+  author: {
+    "@type": "Person",
+    name: SITE.author.name,
+    url: SITE.author.url,
+  },
+});
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
@@ -36,10 +61,10 @@ export default function RootLayout({
   return (
     <html lang="ko" suppressHydrationWarning>
       <head>
-        {/* Static theme-init script — safe constant string, prevents FOUC */}
-        <script
-          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
-        />
+        {/* Static theme-init: safe constant, no user input — prevents FOUC */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* WebSite JSON-LD: safe constant from SITE config, JSON.stringify escapes output */}
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: WEBSITE_JSON_LD }} />
       </head>
       <body>
         <AppShell posts={posts}>{children}</AppShell>

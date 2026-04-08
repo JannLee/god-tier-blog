@@ -42,6 +42,7 @@ function FolderIcon() {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
+  ai: 'AI',
   frontend: 'Frontend',
   languages: 'Languages',
   'devops-infra': 'DevOps / Infra',
