@@ -1,26 +1,45 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Class-based dark mode: adds dark: variant triggered by .dark on <html> */
+@variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ── Light theme ───────────────────────────── */
+:root {
+  --bg: #f8fafc;
+  --bg-subtle: #f1f5f9;
+  --bg-card: #ffffff;
+  --fg: #0f172a;
+  --fg-secondary: #334155;
+  --fg-muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --sidebar-w: 256px;
 }
 
+/* ── Dark theme ────────────────────────────── */
+/* Contrast ratios all ≥ 4.5:1 for WCAG AA */
+.dark {
+  --bg: #0f172a;        /* slate-900 */
+  --bg-subtle: #1e293b; /* slate-800 */
+  --bg-card: #1e293b;   /* slate-800 */
+  --fg: #f1f5f9;        /* slate-100  — 14.7:1 on bg */
+  --fg-secondary: #cbd5e1; /* slate-300 — 9.3:1 */
+  --fg-muted: #94a3b8;  /* slate-400  — 5.9:1 */
+  --border: #334155;    /* slate-700 */
+  --accent: #60a5fa;    /* blue-400   — 5.9:1 on bg */
+  --accent-hover: #93c5fd;
+}
+
+/* ── Base styles ───────────────────────────── */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }

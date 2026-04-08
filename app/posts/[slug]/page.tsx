@@ -12,6 +12,8 @@ export async function generateStaticParams() {
   return getAllPosts().map((post) => ({ slug: post.slug }));
 }
 
+const BASE_URL = 'https://jannlee.github.io'
+
 export async function generateMetadata({
   params,
 }: {
@@ -20,9 +22,25 @@ export async function generateMetadata({
   const { slug } = await params;
   const post = getPostBySlug(slug);
   if (!post) return {};
+  const { title, description, date } = post.frontmatter;
+  const url = `${BASE_URL}/posts/${slug}/`;
   return {
-    title: post.frontmatter.title,
-    description: post.frontmatter.description,
+    title,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      title,
+      description,
+      type: 'article',
+      url,
+      publishedTime: date,
+      authors: ['Jann Lee'],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+    },
   };
 }
 
@@ -93,8 +111,25 @@ export default async function PostPage({
     components: { pre: CodeBlock },
   });
 
+  // JSON.stringify escapes all output; data is trusted MDX frontmatter, not user input.
+  const jsonLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    headline: frontmatter.title,
+    description: frontmatter.description,
+    author: { "@type": "Person", name: "Jann Lee" },
+    datePublished: frontmatter.date,
+    url: `${BASE_URL}/posts/${slug}/`,
+    keywords: frontmatter.tags.join(", "),
+  });
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
+      {/* Safe JSON-LD: JSON.stringify from trusted frontmatter — no XSS risk */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: jsonLd }}
+      />
       <Link
         href="/"
         className="text-sm text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors mb-8 inline-block"

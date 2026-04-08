@@ -12,16 +12,16 @@ function formatDate(dateStr: string) {
 export default function PostCard({ post }: { post: Post }) {
   const { slug, frontmatter } = post;
   return (
-    <article className="border border-gray-200 rounded-lg p-6 hover:border-gray-400 transition-colors">
+    <article className="border border-[var(--border)] rounded-xl p-6 bg-[var(--bg-card)] hover:border-[var(--accent)]/50 hover:shadow-sm transition-all">
       <Link href={`/posts/${slug}/`} className="group">
-        <h2 className="text-xl font-semibold text-gray-900 group-hover:text-blue-600 transition-colors mb-1">
+        <h2 className="text-xl font-semibold text-[var(--fg)] group-hover:text-[var(--accent)] transition-colors mb-1 leading-snug">
           {frontmatter.title}
         </h2>
       </Link>
-      <time className="text-sm text-gray-500" dateTime={frontmatter.date}>
+      <time className="text-sm text-[var(--fg-muted)]" dateTime={frontmatter.date}>
         {formatDate(frontmatter.date)}
       </time>
-      <p className="mt-3 text-gray-600 text-sm leading-relaxed">
+      <p className="mt-3 text-[var(--fg-secondary)] text-sm leading-relaxed">
         {frontmatter.description}
       </p>
       {frontmatter.tags.length > 0 && (
@@ -29,7 +29,7 @@ export default function PostCard({ post }: { post: Post }) {
           {frontmatter.tags.map((tag) => (
             <span
               key={tag}
-              className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full"
+              className="px-2 py-0.5 bg-[var(--bg-subtle)] text-[var(--fg-muted)] text-xs rounded-full border border-[var(--border)]"
             >
               {tag}
             </span>
@@ -38,7 +38,7 @@ export default function PostCard({ post }: { post: Post }) {
       )}
       <Link
         href={`/posts/${slug}/`}
-        className="mt-4 inline-block text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+        className="mt-4 inline-block text-sm text-[var(--accent)] hover:text-[var(--accent-hover)] font-medium transition-colors"
       >
         읽기 →
       </Link>

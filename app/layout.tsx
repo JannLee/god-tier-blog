@@ -1,55 +1,48 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import "./globals.css";
+import { getAllPosts } from "@/lib/posts";
+import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
-  title: "Blog",
+  metadataBase: new URL("https://jannlee.github.io"),
+  title: {
+    default: "JannLee Blog",
+    template: "%s | JannLee Blog",
+  },
   description: "개발 경험과 인사이트를 기록하는 개인 블로그",
+  openGraph: {
+    siteName: "JannLee Blog",
+    type: "website",
+    locale: "ko_KR",
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
 };
 
-function Header() {
-  return (
-    <header className="border-b border-gray-200 bg-white">
-      <div className="mx-auto max-w-3xl px-4 py-4 flex items-center justify-between">
-        <Link href="/" className="text-xl font-bold text-gray-900 hover:text-gray-600 transition-colors">
-          Blog
-        </Link>
-        <nav className="flex gap-6 text-sm text-gray-600">
-          <Link href="/" className="hover:text-gray-900 transition-colors">홈</Link>
-          <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="hover:text-gray-900 transition-colors">GitHub</a>
-        </nav>
-      </div>
-    </header>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="border-t border-gray-200 bg-white mt-auto">
-      <div className="mx-auto max-w-3xl px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-sm text-gray-500">
-        <p>© {new Date().getFullYear()} Blog. All rights reserved.</p>
-        <div className="flex gap-4">
-          <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="hover:text-gray-900 transition-colors">GitHub</a>
-        </div>
-      </div>
-    </footer>
-  );
-}
+// Static script constant — no user input, no XSS risk.
+// Runs synchronously before React hydrates to apply saved theme class,
+// preventing flash of unstyled content (FOUC) on static export.
+const THEME_INIT_SCRIPT =
+  "try{var t=localStorage.getItem('theme');" +
+  "if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches))" +
+  "{document.documentElement.classList.add('dark');}}catch(e){}";
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
+  const posts = getAllPosts();
+
   return (
-    <html
-      lang="ko"
-      className="h-full antialiased"
-    >
-      <body className="min-h-full flex flex-col bg-white">
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
+    <html lang="ko" suppressHydrationWarning>
+      <head>
+        {/* Static theme-init script — safe constant string, prevents FOUC */}
+        <script
+          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+      </head>
+      <body>
+        <AppShell posts={posts}>{children}</AppShell>
       </body>
     </html>
   );

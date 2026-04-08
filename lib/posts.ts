@@ -6,6 +6,8 @@ export type PostFrontmatter = {
   title: string
   date: string // ISO format: "2026-04-07"
   description: string
+  category?: string    // e.g. "frontend" | "languages" | "devops-infra" | "engineering" | "dev-log"
+  subcategory?: string // e.g. "typescript" | "deployment" | "retrospective"
   tags: string[]
   draft?: boolean
 }
