@@ -68,6 +68,36 @@ function PostLink({ post, pathname }: { post: Post; pathname: string }) {
   )
 }
 
+function SubGroup({
+  label,
+  posts,
+  pathname,
+}: {
+  label: string
+  posts: Post[]
+  pathname: string
+}) {
+  const [open, setOpen] = useState(true)
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors rounded-md hover:bg-[var(--bg-subtle)]"
+      >
+        <ChevronIcon open={open} />
+        <span>{label}</span>
+      </button>
+      {open && (
+        <ul className="ml-4 mt-0.5 space-y-0.5 border-l border-[var(--border)] pl-2">
+          {posts.map((post) => (
+            <PostLink key={post.slug} post={post} pathname={pathname} />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function CategorySection({
   label,
   posts,
@@ -80,6 +110,15 @@ function CategorySection({
   defaultExpanded?: boolean
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+
+  // Group by subcategory when present
+  const subGrouped = posts.reduce<Record<string, Post[]>>((acc, post) => {
+    const sub = post.frontmatter.subcategory ?? ''
+    ;(acc[sub] ??= []).push(post)
+    return acc
+  }, {})
+  const subKeys = Object.keys(subGrouped)
+  const hasSubcategories = subKeys.some((k) => k !== '')
 
   return (
     <div>
@@ -94,11 +133,28 @@ function CategorySection({
       </button>
 
       {expanded && (
-        <ul className="mt-1 ml-5 space-y-0.5 border-l border-[var(--border)] pl-3">
-          {posts.map((post) => (
-            <PostLink key={post.slug} post={post} pathname={pathname} />
-          ))}
-        </ul>
+        <div className="mt-1 ml-5 border-l border-[var(--border)] pl-3">
+          {hasSubcategories ? (
+            <div className="space-y-1">
+              {subKeys.filter((k) => k !== '').sort().map((sub) => (
+                <SubGroup key={sub} label={sub} posts={subGrouped[sub]} pathname={pathname} />
+              ))}
+              {subGrouped[''] && (
+                <ul className="space-y-0.5">
+                  {subGrouped[''].map((post) => (
+                    <PostLink key={post.slug} post={post} pathname={pathname} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : (
+            <ul className="space-y-0.5">
+              {posts.map((post) => (
+                <PostLink key={post.slug} post={post} pathname={pathname} />
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   )
