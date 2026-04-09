@@ -113,7 +113,7 @@ export default async function PostPage({
           rehypeSlug,
           makeRehypeExtractHeadings(headings),
           // P0: dual theme — github-light in light mode, github-dark in dark mode
-          [rehypePrettyCode, { theme: { light: "github-light", dark: "github-dark" }, keepBackground: true }],
+          [rehypePrettyCode, { theme: { light: "github-light", dark: "github-dark" } }],
         ],
       },
     },

@@ -45,8 +45,15 @@ body {
 }
 
 /* ── Code block dual-theme switching ───────── */
-/* rehype-pretty-code outputs two <pre> blocks when theme is an object.
-   We forward data-theme to the CodeBlock wrapper div and toggle visibility. */
-.code-block[data-theme='dark'] { display: none; }
-.dark .code-block[data-theme='dark'] { display: block; }
-.dark .code-block[data-theme='light'] { display: none; }
+/* rehype-pretty-code v0.14+ / Shiki v4+ emit a single <pre> block with
+   --shiki-light / --shiki-dark CSS variables. Wire them to color here. */
+.code-block pre,
+.code-block pre span {
+  color: var(--shiki-light);
+  background-color: var(--shiki-light-bg);
+}
+.dark .code-block pre,
+.dark .code-block pre span {
+  color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg);
+}
