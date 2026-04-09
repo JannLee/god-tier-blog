@@ -76,7 +76,7 @@ export default function AppShell({
       </header>
 
       {/* Body */}
-      <div className="flex flex-1">
+      <div className="flex flex-1 items-start">
         <Sidebar posts={posts} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         {/* Mobile overlay backdrop */}

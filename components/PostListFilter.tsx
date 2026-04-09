@@ -14,20 +14,20 @@ function FilteredList({ posts, allTags }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const activeTag = searchParams.get('tag') ?? ''
+  const activeCategory = searchParams.get('category') ?? ''
 
-  const filtered = activeTag
-    ? posts.filter((p) => p.frontmatter.tags.includes(activeTag))
-    : posts
+  const filtered = posts
+    .filter((p) => !activeCategory || p.frontmatter.category === activeCategory)
+    .filter((p) => !activeTag || p.frontmatter.tags.includes(activeTag))
 
   const setTag = useCallback(
     (tag: string) => {
-      if (tag) {
-        router.replace(`/?tag=${encodeURIComponent(tag)}`)
-      } else {
-        router.replace('/')
-      }
+      const params = new URLSearchParams()
+      if (activeCategory) params.set('category', activeCategory)
+      if (tag) params.set('tag', tag)
+      router.replace(params.size ? `/?${params}` : '/')
     },
-    [router]
+    [router, activeCategory]
   )
 
   return (
