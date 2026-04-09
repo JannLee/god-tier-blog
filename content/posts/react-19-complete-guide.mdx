@@ -1,0 +1,620 @@
+---
+title: "React 19 완전 가이드 — Actions, Compiler, use() 훅 실전 정복"
+date: "2026-04-10"
+description: "React 19의 핵심 변경사항을 코드 예제와 함께 완전 정복합니다. useActionState, useFormStatus, useOptimistic, use() 훅, React Compiler, ref-as-prop, 문서 메타데이터 API까지 실전 패턴으로 총망라합니다."
+category: "frameworks"
+subcategory: "react"
+tags: ["react", "react-19", "actions", "react-compiler", "hooks", "typescript", "web"]
+draft: false
+---
+
+React 19는 2024년 12월에 stable로 릴리즈된 메이저 버전으로, 개발자 경험(DX)과 성능을 동시에 혁신합니다. 이 가이드에서는 실무에 바로 적용할 수 있는 React 19의 핵심 기능을 TypeScript 코드 예제와 함께 살펴봅니다.
+
+## 목차
+
+1. [Actions — 비동기 상태 관리의 혁신](#1-actions--비동기-상태-관리의-혁신)
+2. [useActionState](#2-useactionstate)
+3. [useFormStatus](#3-useformstatus)
+4. [useOptimistic](#4-useoptimistic)
+5. [use() 훅](#5-use-훅)
+6. [React Compiler](#6-react-compiler)
+7. [ref as prop](#7-ref-as-prop)
+8. [Context as Provider](#8-context-as-provider)
+9. [문서 메타데이터 API](#9-문서-메타데이터-api)
+10. [에셋 로딩 API](#10-에셋-로딩-api)
+11. [마이그레이션 가이드](#11-마이그레이션-가이드)
+
+---
+
+## 1. Actions — 비동기 상태 관리의 혁신
+
+React 19 이전에는 서버 요청 처리 시 `pending`, `error`, `success` 상태를 모두 직접 관리해야 했습니다.
+
+```tsx
+// ❌ React 18 방식 — 보일러플레이트가 많다
+function OldUpdateForm() {
+  const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setIsPending(true);
+    setError(null);
+    try {
+      await updateUser(new FormData(e.currentTarget));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setIsPending(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p>{error}</p>}
+      <button disabled={isPending}>저장</button>
+    </form>
+  );
+}
+```
+
+React 19의 **Actions**는 비동기 트랜지션을 자동으로 처리합니다. `form`의 `action` prop에 함수를 넘기면 됩니다.
+
+```tsx
+// ✅ React 19 방식 — 간결하고 명확하다
+function NewUpdateForm() {
+  async function updateAction(formData: FormData) {
+    "use server"; // Server Action (Next.js)
+    await updateUser(formData);
+  }
+
+  return (
+    <form action={updateAction}>
+      <input name="name" />
+      <button type="submit">저장</button>
+    </form>
+  );
+}
+```
+
+Actions의 핵심 규칙:
+- `async` 함수를 `action`, `formAction`, `startTransition`에 전달
+- `pending` 상태는 자동 관리 (`useFormStatus`로 읽기)
+- `error`는 자동 error boundary로 전달
+- 낙관적 UI는 `useOptimistic`으로 구현
+
+---
+
+## 2. useActionState
+
+`useActionState`는 Action의 결과(상태)를 추적하는 새 훅입니다. 기존 `useFormState`를 대체합니다.
+
+```tsx
+import { useActionState } from "react";
+
+type State = {
+  message: string | null;
+  errors?: {
+    name?: string[];
+    email?: string[];
+  };
+};
+
+async function createUserAction(
+  prevState: State,
+  formData: FormData
+): Promise<State> {
+  const name = formData.get("name") as string;
+  const email = formData.get("email") as string;
+
+  if (!name || name.length < 2) {
+    return {
+      message: null,
+      errors: { name: ["이름은 2자 이상이어야 합니다."] },
+    };
+  }
+
+  try {
+    await createUser({ name, email });
+    return { message: "사용자가 생성되었습니다!" };
+  } catch {
+    return { message: "오류가 발생했습니다. 다시 시도해주세요." };
+  }
+}
+
+export function CreateUserForm() {
+  const [state, formAction, isPending] = useActionState(createUserAction, {
+    message: null,
+  });
+
+  return (
+    <form action={formAction}>
+      <div>
+        <label htmlFor="name">이름</label>
+        <input id="name" name="name" />
+        {state.errors?.name && (
+          <p className="text-red-500">{state.errors.name[0]}</p>
+        )}
+      </div>
+      <div>
+        <label htmlFor="email">이메일</label>
+        <input id="email" name="email" type="email" />
+      </div>
+      {state.message && <p className="text-green-600">{state.message}</p>}
+      <button type="submit" disabled={isPending}>
+        {isPending ? "처리 중..." : "생성"}
+      </button>
+    </form>
+  );
+}
+```
+
+`useActionState`의 반환값:
+| 값 | 타입 | 설명 |
+|---|---|---|
+| `state` | `State` | Action의 반환값 (이전 상태가 초기값) |
+| `formAction` | `function` | form의 `action`에 전달할 함수 |
+| `isPending` | `boolean` | Action 실행 중 여부 |
+
+---
+
+## 3. useFormStatus
+
+`useFormStatus`는 **부모 form의 제출 상태**를 읽습니다. form 안의 어느 컴포넌트에서나 호출할 수 있어 제출 버튼 컴포넌트를 분리하기에 최적입니다.
+
+```tsx
+import { useFormStatus } from "react-dom";
+
+// ✅ 독립적인 SubmitButton 컴포넌트
+function SubmitButton({ children }: { children: React.ReactNode }) {
+  const { pending, data, method, action } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className={pending ? "opacity-50 cursor-not-allowed" : ""}
+    >
+      {pending ? (
+        <span className="flex items-center gap-2">
+          <Spinner className="h-4 w-4" />
+          처리 중...
+        </span>
+      ) : (
+        children
+      )}
+    </button>
+  );
+}
+
+// 어떤 form에서도 재사용 가능
+function LoginForm() {
+  return (
+    <form action={loginAction}>
+      <input name="email" type="email" />
+      <input name="password" type="password" />
+      <SubmitButton>로그인</SubmitButton>
+    </form>
+  );
+}
+
+function SignupForm() {
+  return (
+    <form action={signupAction}>
+      <input name="name" />
+      <input name="email" type="email" />
+      <SubmitButton>회원가입</SubmitButton>
+    </form>
+  );
+}
+```
+
+> **주의**: `useFormStatus`는 `<form>` 안에서만 작동합니다. form 외부 컴포넌트에서 호출하면 `pending`은 항상 `false`입니다.
+
+---
+
+## 4. useOptimistic
+
+낙관적 UI(Optimistic UI)는 서버 응답을 기다리지 않고 즉시 UI를 업데이트하는 패턴입니다. React 19는 이를 `useOptimistic` 훅으로 1급 지원합니다.
+
+```tsx
+import { useOptimistic, useActionState } from "react";
+
+type Message = {
+  id: string;
+  text: string;
+  sending?: boolean;
+};
+
+async function sendMessageAction(
+  _prev: Message[],
+  formData: FormData
+): Promise<Message[]> {
+  const text = formData.get("text") as string;
+  const newMsg = await sendMessage(text); // 서버 요청
+  return newMsg;
+}
+
+export function MessageThread({
+  initialMessages,
+}: {
+  initialMessages: Message[];
+}) {
+  const [messages, setMessages] = useActionState(
+    sendMessageAction,
+    initialMessages
+  );
+
+  const [optimisticMessages, addOptimisticMessage] = useOptimistic(
+    messages,
+    (state: Message[], newText: string) => [
+      ...state,
+      { id: crypto.randomUUID(), text: newText, sending: true },
+    ]
+  );
+
+  async function handleSubmit(formData: FormData) {
+    const text = formData.get("text") as string;
+    addOptimisticMessage(text); // 즉시 UI 반영
+    // 실제 서버 요청은 action이 처리
+  }
+
+  return (
+    <div>
+      <ul>
+        {optimisticMessages.map((msg) => (
+          <li key={msg.id} className={msg.sending ? "opacity-50" : ""}>
+            {msg.text}
+            {msg.sending && <span> (전송 중...)</span>}
+          </li>
+        ))}
+      </ul>
+      <form action={handleSubmit}>
+        <input name="text" />
+        <button type="submit">전송</button>
+      </form>
+    </div>
+  );
+}
+```
+
+---
+
+## 5. use() 훅
+
+`use()`는 React 19의 가장 유연한 훅입니다. Promise나 Context를 **조건부로** 읽을 수 있습니다.
+
+### Promise 읽기
+
+```tsx
+import { use, Suspense } from "react";
+
+// ✅ 컴포넌트 안에서 Promise를 직접 unwrap
+function UserProfile({ userPromise }: { userPromise: Promise<User> }) {
+  const user = use(userPromise); // Suspense가 pending을 처리
+
+  return (
+    <div>
+      <h1>{user.name}</h1>
+      <p>{user.email}</p>
+    </div>
+  );
+}
+
+function UserPage({ userId }: { userId: string }) {
+  const userPromise = fetchUser(userId); // 렌더링 중 호출
+
+  return (
+    <Suspense fallback={<Skeleton />}>
+      <UserProfile userPromise={userPromise} />
+    </Suspense>
+  );
+}
+```
+
+### 조건부 Context 읽기
+
+기존 `useContext`는 조건문 안에서 호출할 수 없었습니다. `use()`는 가능합니다.
+
+```tsx
+import { use } from "react";
+import { ThemeContext } from "./ThemeContext";
+
+function ThemeAwareButton({ show }: { show: boolean }) {
+  // ✅ 조건부로 Context 읽기 — 기존 훅 규칙 예외
+  if (!show) return null;
+
+  const theme = use(ThemeContext);
+
+  return (
+    <button
+      style={{
+        background: theme.primaryColor,
+        color: theme.textColor,
+      }}
+    >
+      테마 버튼
+    </button>
+  );
+}
+```
+
+---
+
+## 6. React Compiler
+
+React Compiler는 자동으로 컴포넌트와 훅을 메모이제이션합니다. `useMemo`, `useCallback`, `React.memo`를 수동으로 작성할 필요가 없어집니다.
+
+### 설치
+
+```bash
+npm install -D babel-plugin-react-compiler@beta
+# 또는 Next.js 15+는 내장
+```
+
+```js
+// babel.config.js
+module.exports = {
+  plugins: [["babel-plugin-react-compiler", {}]],
+};
+```
+
+### Next.js 15+에서 활성화
+
+```js
+// next.config.ts
+const nextConfig = {
+  experimental: {
+    reactCompiler: true,
+  },
+};
+
+export default nextConfig;
+```
+
+### Before / After 비교
+
+```tsx
+// ❌ React 18 — 수동 메모이제이션
+function ProductList({ products, onSelect }: Props) {
+  const sortedProducts = useMemo(
+    () => [...products].sort((a, b) => a.name.localeCompare(b.name)),
+    [products]
+  );
+
+  const handleSelect = useCallback(
+    (id: string) => {
+      onSelect(id);
+    },
+    [onSelect]
+  );
+
+  return (
+    <ul>
+      {sortedProducts.map((p) => (
+        <ProductItem key={p.id} product={p} onSelect={handleSelect} />
+      ))}
+    </ul>
+  );
+}
+
+// ✅ React 19 + Compiler — 자동 최적화
+function ProductList({ products, onSelect }: Props) {
+  const sortedProducts = [...products].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+
+  return (
+    <ul>
+      {sortedProducts.map((p) => (
+        <ProductItem key={p.id} product={p} onSelect={onSelect} />
+      ))}
+    </ul>
+  );
+}
+```
+
+> Compiler는 "React의 규칙"을 준수하는 코드에서만 작동합니다. 규칙을 어기는 컴포넌트는 자동으로 건너뜁니다.
+
+---
+
+## 7. ref as prop
+
+이제 `forwardRef`를 사용하지 않아도 됩니다. `ref`를 일반 prop처럼 전달할 수 있습니다.
+
+```tsx
+// ❌ React 18 — forwardRef 필요
+const Input = forwardRef<HTMLInputElement, InputProps>(
+  ({ label, ...props }, ref) => (
+    <div>
+      <label>{label}</label>
+      <input ref={ref} {...props} />
+    </div>
+  )
+);
+Input.displayName = "Input";
+
+// ✅ React 19 — 그냥 prop
+function Input({
+  label,
+  ref,
+  ...props
+}: InputProps & { ref?: React.Ref<HTMLInputElement> }) {
+  return (
+    <div>
+      <label>{label}</label>
+      <input ref={ref} {...props} />
+    </div>
+  );
+}
+
+// 사용법은 동일
+function Form() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return <Input label="이름" ref={inputRef} />;
+}
+```
+
+클래스 컴포넌트의 `ref`는 이전과 동일하게 동작합니다.
+
+---
+
+## 8. Context as Provider
+
+`<Context.Provider>` 대신 `<Context>`를 직접 Provider로 사용할 수 있습니다.
+
+```tsx
+const ThemeContext = createContext<Theme>(defaultTheme);
+
+// ❌ React 18
+function App() {
+  return (
+    <ThemeContext.Provider value={darkTheme}>
+      <Router />
+    </ThemeContext.Provider>
+  );
+}
+
+// ✅ React 19
+function App() {
+  return (
+    <ThemeContext value={darkTheme}>
+      <Router />
+    </ThemeContext>
+  );
+}
+```
+
+기존 `<ThemeContext.Provider>` 문법도 계속 동작하므로, 마이그레이션은 선택 사항입니다.
+
+---
+
+## 9. 문서 메타데이터 API
+
+컴포넌트 안에서 `<title>`, `<meta>`, `<link>`를 직접 렌더링하면 React가 자동으로 `<head>`에 호이스팅합니다. 별도 라이브러리(`react-helmet`) 없이 사용 가능합니다.
+
+```tsx
+function BlogPost({ post }: { post: Post }) {
+  return (
+    <article>
+      {/* 자동으로 <head>에 호이스팅 */}
+      <title>{post.title} | God-Tier Blog</title>
+      <meta name="description" content={post.description} />
+      <meta property="og:title" content={post.title} />
+      <meta property="og:description" content={post.description} />
+      <meta property="og:image" content={post.thumbnail} />
+      <link rel="canonical" href={`https://example.com/posts/${post.slug}`} />
+
+      {/* 컴포넌트 본문 */}
+      <h1>{post.title}</h1>
+      <p>{post.content}</p>
+    </article>
+  );
+}
+```
+
+**우선순위 규칙**: 동일한 태그가 여러 컴포넌트에 있으면 트리에서 더 깊은(자식) 컴포넌트의 값이 우선합니다.
+
+---
+
+## 10. 에셋 로딩 API
+
+스타일시트, 스크립트, 폰트를 컴포넌트 수준에서 선언하면 React가 로딩을 최적화합니다.
+
+```tsx
+import { preinit, preload, prefetchDNS, preconnect } from "react-dom";
+
+function HeavyChart() {
+  // 컴포넌트가 렌더링되기 전에 미리 로딩
+  preload("https://cdn.example.com/chart.js", { as: "script" });
+  preload("https://fonts.gstatic.com/s/inter.woff2", { as: "font" });
+
+  // DNS 조회 미리 시작
+  prefetchDNS("https://api.example.com");
+
+  // 연결 미리 수립
+  preconnect("https://cdn.example.com");
+
+  return <div id="chart-container" />;
+}
+
+function Page() {
+  // 스타일시트를 로드하고 적용이 완료된 후 렌더링
+  return (
+    <>
+      <link rel="stylesheet" href="/styles/page.css" precedence="default" />
+      <h1>페이지 제목</h1>
+    </>
+  );
+}
+```
+
+---
+
+## 11. 마이그레이션 가이드
+
+### 주요 Breaking Changes
+
+| 변경 사항 | React 18 | React 19 |
+|---|---|---|
+| `ReactDOM.render` | 지원 | **제거** (`createRoot` 사용) |
+| `ReactDOM.hydrate` | 지원 | **제거** (`hydrateRoot` 사용) |
+| `react-dom/test-utils` | 지원 | **제거** (`@testing-library/react` 사용) |
+| `React.createFactory` | Deprecated | **제거** |
+| `defaultProps` on function components | 지원 | **제거** (ES default params 사용) |
+| `string ref` | Deprecated | **제거** |
+| `useFormState` | `react-dom` | `useActionState`로 이름 변경 |
+
+### 단계별 마이그레이션
+
+```bash
+# 1. 의존성 업데이트
+npm install react@19 react-dom@19
+
+# 2. TypeScript 타입 업데이트
+npm install -D @types/react@19 @types/react-dom@19
+
+# 3. codemod 실행 (자동 변환)
+npx codemod@latest react/19/migration-recipe
+```
+
+### 흔한 오류 수정
+
+```tsx
+// ❌ 제거된 API
+import { act } from "react-dom/test-utils";
+
+// ✅ 새 위치
+import { act } from "react";
+```
+
+```tsx
+// ❌ defaultProps on function component (제거됨)
+function Button({ variant }: { variant?: string }) {
+  return <button className={variant}>{children}</button>;
+}
+Button.defaultProps = { variant: "primary" };
+
+// ✅ ES default params 사용
+function Button({ variant = "primary" }: { variant?: string }) {
+  return <button className={variant}>{children}</button>;
+}
+```
+
+---
+
+## 정리
+
+React 19의 핵심 변화를 한 줄로 요약하면: **"보일러플레이트를 제거하고, 관용구를 표준화했다"**입니다.
+
+| 기능 | 해결하는 문제 |
+|---|---|
+| Actions + useActionState | 비동기 폼 상태 관리 복잡도 |
+| useFormStatus | pending 상태 prop drilling |
+| useOptimistic | 낙관적 UI 구현 복잡도 |
+| use() 훅 | 조건부 데이터 읽기 제한 |
+| React Compiler | 수동 메모이제이션 부담 |
+| ref as prop | forwardRef 보일러플레이트 |
+| 문서 메타데이터 | react-helmet 의존성 |
+
+Next.js 15+를 사용 중이라면 React 19는 이미 기본 탑재되어 있습니다. 점진적 마이그레이션이 가능하므로 codemod로 Breaking Changes를 수정하고, Actions부터 하나씩 적용해보세요.
