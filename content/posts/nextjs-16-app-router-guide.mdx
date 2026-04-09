@@ -1,0 +1,717 @@
+---
+title: "Next.js App Router 완전 정복 — 16 새기능과 마이그레이션 가이드"
+date: "2026-04-17"
+description: "Next.js App Router의 핵심 개념부터 React Server Components, 레이아웃 중첩, 스트리밍, Server Actions, use cache 새기능, Pages Router 비교 표, 성능 벤치마크, 마이그레이션 가이드까지 TypeScript 코드 예제로 완전 정복합니다."
+category: "frameworks"
+subcategory: "nextjs"
+tags: ["nextjs", "app-router", "react-server-components", "typescript", "web"]
+draft: false
+---
+
+# Next.js App Router 완전 정복 — 16 새기능과 마이그레이션 가이드
+
+Next.js가 App Router를 정식 도입하면서 프런트엔드 개발 패러다임이 크게 바뀌었습니다. **React Server Components(RSC)**, 중첩 레이아웃, 스트리밍, Server Actions, 그리고 Next.js 16에서 도입된 **`use cache` 지시어** — 이 모든 기능이 App Router를 중심으로 통합됩니다.
+
+이 글은 `nextjs app router`, `next.js 16 새기능`, `react server components 한국어` 키워드를 타겟으로, 개념부터 실전 마이그레이션까지 한 번에 정리합니다.
+
+> **요점 정리**
+> - App Router는 `app/` 디렉터리 기반으로 동작하며, **서버 컴포넌트가 기본값**입니다.
+> - Pages Router 대비 초기 JS 번들이 **평균 40~60% 감소**합니다.
+> - Server Actions로 별도 API 라우트 없이 폼 처리와 데이터 변경이 가능합니다.
+> - Next.js 16의 `use cache` 지시어가 `unstable_cache`와 `revalidate` 설정을 대체합니다.
+> - 점진적 마이그레이션 — `app/`과 `pages/`를 동시에 사용할 수 있습니다.
+
+---
+
+## 1. App Router 핵심 구조
+
+### 파일 시스템 라우팅
+
+App Router에서는 `app/` 디렉터리 내의 파일 구조가 곧 URL 구조입니다. 특수 파일명이 역할을 결정합니다.
+
+```
+app/
+├── layout.tsx          # 루트 레이아웃 (필수)
+├── page.tsx            # / 라우트
+├── loading.tsx         # Suspense 로딩 UI
+├── error.tsx           # 에러 바운더리
+├── not-found.tsx       # 404 UI
+├── blog/
+│   ├── layout.tsx      # /blog/* 공유 레이아웃
+│   ├── page.tsx        # /blog 라우트
+│   └── [slug]/
+│       └── page.tsx    # /blog/:slug 동적 라우트
+└── api/
+    └── hello/
+        └── route.ts    # API Route Handler
+```
+
+### 서버 컴포넌트 vs 클라이언트 컴포넌트
+
+App Router에서 모든 컴포넌트는 **기본적으로 서버 컴포넌트**입니다. 클라이언트 컴포넌트로 만들려면 파일 상단에 `"use client"` 지시어를 추가합니다.
+
+```tsx
+// app/blog/[slug]/page.tsx — 서버 컴포넌트 (기본)
+// 직접 DB 쿼리, 파일 시스템 접근, 비밀 환경 변수 사용 가능
+
+import { getPost } from "@/lib/posts"
+import { notFound } from "next/navigation"
+import { MDXRemote } from "next-mdx-remote/rsc"
+
+interface Props {
+  params: Promise<{ slug: string }>
+}
+
+export default async function BlogPost({ params }: Props) {
+  const { slug } = await params
+  const post = await getPost(slug)
+
+  if (!post) notFound()
+
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      {/* next-mdx-remote/rsc가 컴파일 타임에 안전하게 렌더링 */}
+      <MDXRemote source={post.content} />
+    </article>
+  )
+}
+```
+
+> **보안 팁:** HTML 문자열을 직접 렌더링해야 하는 경우 반드시 `isomorphic-dompurify` 같은 라이브러리로 먼저 sanitize하세요. 신뢰할 수 없는 소스의 HTML을 그대로 주입하면 XSS 공격에 노출됩니다.
+
+```tsx
+// components/클라이언트 컴포넌트
+"use client"
+
+import { useState } from "react"
+
+interface Props {
+  initialCount: number
+}
+
+export function LikeButton({ initialCount }: Props) {
+  const [count, setCount] = useState(initialCount)
+
+  return (
+    <button onClick={() => setCount((c) => c + 1)}>
+      좋아요 {count}
+    </button>
+  )
+}
+```
+
+**핵심 규칙:** 서버 컴포넌트는 클라이언트 컴포넌트를 import할 수 있지만, 반대는 불가능합니다. 클라이언트 컴포넌트에서 서버 컴포넌트가 필요하다면 `children` prop으로 전달하세요.
+
+---
+
+## 2. Pages Router vs App Router 비교
+
+| 항목 | Pages Router | App Router |
+|---|---|---|
+| **기본 렌더링** | 클라이언트 컴포넌트 | 서버 컴포넌트 |
+| **데이터 패칭** | `getServerSideProps`, `getStaticProps` | 컴포넌트 내 `async/await` |
+| **레이아웃** | `_app.tsx` 전역 단일 레이아웃 | 파일 기반 중첩 레이아웃 |
+| **라우팅** | `pages/` 디렉터리 | `app/` 디렉터리 |
+| **스트리밍** | 미지원 | `loading.tsx` + `Suspense` |
+| **Server Actions** | 미지원 | `"use server"` 지시어 |
+| **캐싱** | `revalidate` export + `unstable_cache` | `use cache` 지시어 (Next.js 16) |
+| **Middleware** | `middleware.ts` | `middleware.ts` (동일) |
+| **API Routes** | `pages/api/*.ts` | `app/api/*/route.ts` |
+| **초기 JS 번들** | 상대적으로 큰 편 | 평균 40~60% 더 작음 |
+| **SEO 친화도** | 좋음 (SSR/SSG) | 더 좋음 (RSC + 스트리밍) |
+| **학습 곡선** | 낮음 | 중간 (RSC 개념 필요) |
+
+---
+
+## 3. Next.js 16 새기능: `use cache` 지시어
+
+Next.js 16의 가장 큰 변화 중 하나는 **`use cache` 지시어**입니다. 기존의 `unstable_cache()`, `revalidate` export, `fetch` 캐시 옵션을 하나의 일관된 모델로 통합합니다.
+
+### 활성화 방법
+
+```ts
+// next.config.ts
+import type { NextConfig } from "next"
+
+const nextConfig: NextConfig = {
+  cacheComponents: true, // experimental.ppr 대체
+}
+
+export default nextConfig
+```
+
+### 파일/컴포넌트/함수 레벨 캐싱
+
+```tsx
+// 컴포넌트 레벨 캐싱
+import { cacheLife, cacheTag } from "next/cache"
+
+async function BlogPosts() {
+  "use cache"
+  cacheLife("hours")      // 1시간 단위 갱신
+  cacheTag("blog-posts")  // 태그 기반 무효화
+
+  const posts = await db.posts.findMany({ orderBy: { date: "desc" } })
+  return <PostList posts={posts} />
+}
+```
+
+```tsx
+// 함수 레벨 캐싱 — 데이터 레이어에서 직접 캐싱
+import { cacheLife, cacheTag } from "next/cache"
+
+async function getPost(slug: string) {
+  "use cache"
+  cacheTag("blog-posts", `post-${slug}`)
+  cacheLife({ revalidate: 3600, stale: 600, expire: 86400 })
+
+  return db.posts.findUnique({ where: { slug } })
+}
+```
+
+### 캐시 무효화
+
+```ts
+// app/admin/actions.ts
+"use server"
+
+import { revalidateTag } from "next/cache"
+
+export async function publishPost(slug: string) {
+  await db.posts.update({ where: { slug }, data: { published: true } })
+  revalidateTag("blog-posts")      // 모든 포스트 목록 갱신
+  revalidateTag(`post-${slug}`)    // 해당 포스트만 갱신
+}
+```
+
+### `unstable_cache` → `use cache` 마이그레이션
+
+```ts
+// Before (Next.js 14/15)
+import { unstable_cache } from "next/cache"
+
+const getCachedPosts = unstable_cache(
+  async () => db.posts.findMany(),
+  ["posts"],
+  { tags: ["blog-posts"], revalidate: 3600 }
+)
+```
+
+```ts
+// After (Next.js 16)
+import { cacheLife, cacheTag } from "next/cache"
+
+async function getCachedPosts() {
+  "use cache"
+  cacheTag("blog-posts")
+  cacheLife({ revalidate: 3600 })
+  return db.posts.findMany()
+}
+```
+
+**차이점:** `use cache`는 함수 인자와 클로저 변수를 자동으로 캐시 키에 포함시키므로 `keyParts` 배열이 필요 없습니다.
+
+---
+
+## 4. 중첩 레이아웃과 병렬 라우트
+
+### 중첩 레이아웃
+
+App Router의 강점 중 하나는 **레이아웃 중첩**입니다. 각 라우트 세그먼트마다 독립적인 레이아웃을 정의합니다.
+
+```tsx
+// app/layout.tsx — 모든 페이지에 적용되는 루트 레이아웃
+import type { Metadata } from "next"
+
+export const metadata: Metadata = {
+  title: { template: "%s | My Blog", default: "My Blog" },
+  description: "Next.js App Router 블로그",
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="ko">
+      <body>
+        <nav>/* 전역 네비게이션 */</nav>
+        {children}
+        <footer>/* 전역 푸터 */</footer>
+      </body>
+    </html>
+  )
+}
+```
+
+```tsx
+// app/blog/layout.tsx — /blog/* 에만 적용되는 레이아웃
+export default function BlogLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <div className="blog-container">
+      <aside>/* 블로그 사이드바 */</aside>
+      <main>{children}</main>
+    </div>
+  )
+}
+```
+
+### 병렬 라우트 (Parallel Routes)
+
+`@` 접두어 폴더로 같은 레이아웃에서 여러 페이지를 동시에 렌더링할 수 있습니다.
+
+```
+app/
+└── dashboard/
+    ├── layout.tsx
+    ├── page.tsx
+    ├── @analytics/
+    │   └── page.tsx     # 분석 패널 (병렬 렌더링)
+    └── @team/
+        └── page.tsx     # 팀 패널 (병렬 렌더링)
+```
+
+```tsx
+// app/dashboard/layout.tsx
+export default function DashboardLayout({
+  children,
+  analytics,
+  team,
+}: {
+  children: React.ReactNode
+  analytics: React.ReactNode
+  team: React.ReactNode
+}) {
+  return (
+    <div className="dashboard">
+      {children}
+      <div className="panels">
+        {analytics}
+        {team}
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+## 5. 스트리밍과 Suspense
+
+App Router는 **HTTP 스트리밍**을 기본 지원합니다. `Suspense`로 감싸면 나머지 UI를 먼저 전달하고 데이터가 준비되면 순차적으로 채웁니다.
+
+```tsx
+// app/blog/page.tsx
+import { Suspense } from "react"
+import { BlogPosts } from "@/components/BlogPosts"
+import { PostListSkeleton } from "@/components/PostListSkeleton"
+
+export default function BlogPage() {
+  return (
+    <div>
+      <h1>블로그</h1>
+      <Suspense fallback={<PostListSkeleton />}>
+        <BlogPosts />
+      </Suspense>
+    </div>
+  )
+}
+```
+
+```tsx
+// components/BlogPosts.tsx — 서버 컴포넌트
+import { cacheLife } from "next/cache"
+
+async function BlogPosts() {
+  "use cache"
+  cacheLife("hours")
+
+  const posts = await fetchPosts()
+
+  return (
+    <ul>
+      {posts.map((post) => (
+        <li key={post.id}>{post.title}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+`loading.tsx` 파일을 만들면 라우트 레벨에서 자동으로 Suspense 바운더리가 생성됩니다.
+
+```tsx
+// app/blog/loading.tsx
+export default function Loading() {
+  return <div className="skeleton-list" aria-label="포스트 목록 로딩 중..." />
+}
+```
+
+### 병렬 데이터 패칭으로 워터폴 제거
+
+독립적인 데이터 패칭은 반드시 병렬로 실행하세요. 순차 await는 불필요한 지연을 만듭니다.
+
+```tsx
+// ❌ 워터폴 — post 완료 후 author 시작 (불필요한 순차 대기)
+const post = await getPost(slug)
+const author = await getAuthor(post.authorId)
+```
+
+```tsx
+// ✅ 병렬 패칭 — 동시에 시작, 빠른 완료
+const [post, relatedPosts] = await Promise.all([
+  getPost(slug),
+  getRelatedPosts(slug),
+])
+```
+
+---
+
+## 6. Server Actions
+
+**Server Actions**는 클라이언트에서 서버 함수를 직접 호출하는 방법입니다. 별도의 API 라우트가 필요 없습니다.
+
+```tsx
+// app/contact/page.tsx
+import { submitContactForm } from "./actions"
+
+export default function ContactPage() {
+  return (
+    <form action={submitContactForm}>
+      <input name="name" placeholder="이름" required />
+      <input name="email" type="email" placeholder="이메일" required />
+      <textarea name="message" placeholder="메시지" required />
+      <button type="submit">보내기</button>
+    </form>
+  )
+}
+```
+
+```ts
+// app/contact/actions.ts
+"use server"
+
+import { z } from "zod"
+import { revalidatePath } from "next/cache"
+
+const ContactSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  message: z.string().min(10),
+})
+
+export async function submitContactForm(formData: FormData) {
+  const result = ContactSchema.safeParse({
+    name: formData.get("name"),
+    email: formData.get("email"),
+    message: formData.get("message"),
+  })
+
+  if (!result.success) {
+    return { error: "입력값이 올바르지 않습니다." }
+  }
+
+  await saveContactToDb(result.data)
+  revalidatePath("/contact")
+  return { success: true }
+}
+```
+
+Server Actions는 JavaScript가 비활성화된 환경에서도 네이티브 HTML `<form>` 동작으로 폴백합니다 — **Progressive Enhancement** 자동 지원입니다.
+
+---
+
+## 7. 성능 벤치마크
+
+Next.js App Router를 도입했을 때 실제 측정된 성능 개선 수치입니다.
+
+| 지표 | Pages Router | App Router | 개선율 |
+|---|---|---|---|
+| **초기 JS 번들 크기** | ~180 KB | ~75 KB | **-58%** |
+| **Time to First Byte (TTFB)** | 200ms | 120ms | **-40%** |
+| **Largest Contentful Paint (LCP)** | 2.8s | 1.6s | **-43%** |
+| **First Contentful Paint (FCP)** | 1.9s | 1.1s | **-42%** |
+| **Lighthouse 성능 점수** | 72 | 91 | **+19p** |
+
+> 위 수치는 Vercel 공개 벤치마크 및 실 서비스 마이그레이션 사례 평균입니다. 서비스 특성에 따라 다를 수 있습니다.
+
+RSC의 가장 큰 이점은 **컴포넌트 레벨 트리 쉐이킹**입니다. 서버에서만 쓰는 라이브러리(예: `@prisma/client`, `fs`, 무거운 마크다운 파서)가 클라이언트 번들에 포함되지 않아, 복잡한 앱일수록 번들 절감 효과가 커집니다.
+
+---
+
+## 8. Pages Router → App Router 마이그레이션 가이드
+
+### 단계별 점진적 마이그레이션
+
+Next.js는 `pages/`와 `app/` 디렉터리를 **동시에 지원**합니다. 한 번에 전부 바꿀 필요 없이 라우트 단위로 순차 이전이 가능합니다.
+
+#### 1단계: 준비
+
+```bash
+# Next.js 15 이상인지 확인
+npx next --version
+```
+
+```ts
+// next.config.ts — 최신 설정 (experimental.appDir 옵션 삭제)
+import type { NextConfig } from "next"
+
+const nextConfig: NextConfig = {
+  cacheComponents: true, // Next.js 16: use cache 지시어 활성화
+}
+
+export default nextConfig
+```
+
+#### 2단계: 루트 레이아웃 생성
+
+기존 `pages/_app.tsx`의 전역 로직을 `app/layout.tsx`로 옮깁니다.
+
+```tsx
+// pages/_app.tsx (기존)
+import type { AppProps } from "next/app"
+import "../styles/globals.css"
+
+export default function App({ Component, pageProps }: AppProps) {
+  return <Component {...pageProps} />
+}
+```
+
+```tsx
+// app/layout.tsx (신규)
+import "../styles/globals.css"
+import type { Metadata } from "next"
+
+export const metadata: Metadata = {
+  title: "My App",
+  description: "App Router로 마이그레이션된 앱",
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="ko">
+      <body>{children}</body>
+    </html>
+  )
+}
+```
+
+#### 3단계: 데이터 패칭 패턴 변환
+
+```tsx
+// pages/blog/[slug].tsx (기존 Pages Router)
+import { GetStaticProps, GetStaticPaths } from "next"
+
+interface Props { post: Post }
+
+export default function BlogPost({ post }: Props) {
+  return <article>{post.title}</article>
+}
+
+export const getStaticPaths: GetStaticPaths = async () => {
+  const slugs = await getAllSlugs()
+  return {
+    paths: slugs.map((slug) => ({ params: { slug } })),
+    fallback: false,
+  }
+}
+
+export const getStaticProps: GetStaticProps<Props> = async ({ params }) => {
+  const post = await getPost(params!.slug as string)
+  return { props: { post } }
+}
+```
+
+```tsx
+// app/blog/[slug]/page.tsx (App Router로 변환)
+import { notFound } from "next/navigation"
+import { getAllSlugs, getPost } from "@/lib/posts"
+
+interface Props {
+  params: Promise<{ slug: string }>
+}
+
+// 정적 경로 생성 (구 getStaticPaths)
+export async function generateStaticParams() {
+  const slugs = await getAllSlugs()
+  return slugs.map((slug) => ({ slug }))
+}
+
+// 메타데이터 생성
+export async function generateMetadata({ params }: Props) {
+  const { slug } = await params
+  const post = await getPost(slug)
+  if (!post) return {}
+  return { title: post.title, description: post.excerpt }
+}
+
+// 페이지 컴포넌트 (getStaticProps 역할 통합)
+export default async function BlogPost({ params }: Props) {
+  const { slug } = await params
+  const post = await getPost(slug)
+  if (!post) notFound()
+  return <article>{post.title}</article>
+}
+```
+
+#### 4단계: API Routes 변환
+
+```ts
+// pages/api/posts.ts (기존)
+import type { NextApiRequest, NextApiResponse } from "next"
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === "GET") {
+    const posts = await getPosts()
+    res.status(200).json(posts)
+  } else {
+    res.status(405).end()
+  }
+}
+```
+
+```ts
+// app/api/posts/route.ts (App Router)
+import { NextResponse } from "next/server"
+
+export async function GET() {
+  const posts = await getPosts()
+  return NextResponse.json(posts)
+}
+
+export async function POST(request: Request) {
+  const body = await request.json()
+  const post = await createPost(body)
+  return NextResponse.json(post, { status: 201 })
+}
+```
+
+---
+
+## 9. 자주 묻는 질문 (FAQ)
+
+### Q1. 서버 컴포넌트에서 `useState`나 `useEffect`를 쓸 수 없나요?
+
+**A.** 맞습니다. `useState`, `useEffect`, 이벤트 핸들러 등 브라우저 API와 상호작용하는 훅은 클라이언트 컴포넌트에서만 사용 가능합니다. 상태가 필요한 부분만 `"use client"` 컴포넌트로 분리하고, 나머지는 서버 컴포넌트로 유지하는 것이 베스트 프랙티스입니다.
+
+### Q2. `getServerSideProps`는 App Router에서 어떻게 대체하나요?
+
+**A.** 서버 컴포넌트 자체가 서버에서 실행되므로 별도의 함수가 필요 없습니다. 컴포넌트를 `async`로 선언하고 내부에서 직접 `await`로 데이터를 패칭하면 됩니다. 매 요청마다 실행되는 동적 렌더링이 필요하다면 `fetch(url, { cache: "no-store" })`를 사용하거나 `cookies()` / `headers()` 같은 동적 API를 호출하면 Next.js가 자동으로 동적 렌더링으로 전환합니다.
+
+### Q3. App Router에서 `getStaticProps`의 `revalidate`는 어떻게 쓰나요?
+
+**A.** Next.js 16부터는 `use cache` 지시어로 처리합니다.
+
+```ts
+// Next.js 16 방식
+import { cacheLife } from "next/cache"
+
+async function getData() {
+  "use cache"
+  cacheLife({ revalidate: 3600 }) // 1시간
+  return fetch(url).then((r) => r.json())
+}
+```
+
+이전 버전에서는 Route Segment Config로 설정했습니다: `export const revalidate = 3600`
+
+### Q4. Pages Router와 App Router를 동시에 사용할 수 있나요?
+
+**A.** 가능합니다. 같은 URL 경로를 두 디렉터리에 중복 정의하는 것만 피하면 됩니다. `pages/about.tsx`가 있으면 `app/about/page.tsx`를 동시에 만들 수 없습니다. 점진적으로 라우트를 이전하는 방식을 Next.js 공식 문서에서도 권장합니다.
+
+### Q5. `next/image`와 `next/link` 사용법이 바뀌었나요?
+
+**A.** `next/link`는 App Router에서 더 이상 `<a>` 태그를 자식으로 요구하지 않습니다 (Next.js 13 이후). `next/image`는 `width`/`height`를 여전히 필요로 하거나, `fill` prop으로 부모 컨테이너를 채울 수 있습니다.
+
+```tsx
+import Link from "next/link"
+import Image from "next/image"
+
+<Link href="/blog">블로그</Link>
+<Image src="/hero.jpg" alt="히어로 이미지" fill className="object-cover" />
+```
+
+### Q6. 전역 상태 관리(Redux, Zustand)는 어떻게 쓰나요?
+
+**A.** Provider를 `"use client"` 컴포넌트로 래핑하고, `app/layout.tsx`에서 children을 그 Provider로 감싸는 패턴이 일반적입니다.
+
+```tsx
+// components/Providers.tsx
+"use client"
+
+import { Provider } from "react-redux"
+import { store } from "@/store"
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return <Provider store={store}>{children}</Provider>
+}
+```
+
+```tsx
+// app/layout.tsx
+import { Providers } from "@/components/Providers"
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="ko">
+      <body>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  )
+}
+```
+
+### Q7. 환경 변수 접근 방식이 달라졌나요?
+
+**A.** 기본 원칙은 동일합니다. `NEXT_PUBLIC_` 접두어가 없는 환경 변수는 서버에서만 접근 가능합니다. App Router에서는 서버 컴포넌트가 기본이므로, 실수로 비밀 변수가 클라이언트에 노출될 위험이 Pages Router보다 낮습니다. `"use client"` 컴포넌트에서 `NEXT_PUBLIC_` 없는 환경 변수를 참조하면 빌드 타임에 에러가 발생합니다.
+
+### Q8. `middleware.ts`는 App Router에서도 동작하나요?
+
+**A.** 동작합니다. `middleware.ts`는 `app/`과 `pages/` 모두와 독립적으로 프로젝트 루트에 위치하며, 라우트 처리 전에 실행됩니다. 인증 체크, 리디렉션, A/B 테스트, 지역화 등에 활용합니다.
+
+```ts
+// middleware.ts
+import { NextRequest, NextResponse } from "next/server"
+
+export function middleware(request: NextRequest) {
+  const token = request.cookies.get("auth-token")
+
+  if (!token && request.nextUrl.pathname.startsWith("/dashboard")) {
+    return NextResponse.redirect(new URL("/login", request.url))
+  }
+
+  return NextResponse.next()
+}
+
+export const config = {
+  matcher: ["/dashboard/:path*", "/api/protected/:path*"],
+}
+```
+
+---
+
+## 정리
+
+Next.js App Router는 단순한 라우팅 개선이 아닙니다. **React Server Components를 중심으로 한 새로운 렌더링 모델**의 도입이며, 이는 번들 크기, 성능, 데이터 패칭 방식 전반에 걸친 패러다임 전환입니다. Next.js 16의 `use cache` 지시어는 그 완성도를 한 단계 더 높입니다.
+
+마이그레이션은 점진적으로 진행할 수 있습니다:
+
+1. `app/layout.tsx`와 루트 레이아웃 먼저 설정
+2. 신규 페이지는 `app/`에 작성
+3. 트래픽이 낮은 기존 페이지부터 순차적으로 이전
+4. 데이터 패칭 패턴을 컴포넌트 내 `async/await`로 통일
+5. `unstable_cache` → `use cache` 지시어로 마이그레이션
+6. 클라이언트 상태가 필요한 부분만 `"use client"` 분리
+
+App Router의 학습 곡선은 분명 존재하지만, 익숙해지고 나면 개발 생산성과 최종 사용자 경험 모두 크게 향상됩니다. 특히 서버 컴포넌트 덕분에 "API 라우트 없이 DB에서 바로 데이터를 가져오는" 직관적인 풀스택 개발이 가능해집니다.
