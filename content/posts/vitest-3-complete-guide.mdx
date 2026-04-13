@@ -1,0 +1,892 @@
+---
+title: "Vitest 3 완전 가이드 — 모던 TypeScript 테스팅의 새 기준"
+date: "2026-04-14"
+description: "Vitest 3의 핵심 기능을 실전 코드로 완전 정복합니다. Browser Mode 정식 지원, 인라인 스냅샷 개선, Pool 설정 최적화, React/Next.js 통합, 그리고 Jest 마이그레이션 가이드까지 총망라합니다."
+category: "testing"
+subcategory: "vitest"
+tags: ["vitest", "testing", "typescript", "react", "nextjs", "vite", "jest"]
+draft: false
+---
+
+# Vitest 3 완전 가이드 — 모던 TypeScript 테스팅의 새 기준
+
+Vitest는 Vite 기반 프로젝트를 위해 설계된 차세대 테스트 프레임워크입니다. Vitest 3는 Browser Mode의 정식 지원, 대규모 프로젝트를 위한 Pool 최적화, 그리고 Jest 호환성 개선으로 **모던 TypeScript 생태계의 표준 테스트 도구**로 자리잡았습니다. 이 가이드에서는 실무에 바로 적용 가능한 Vitest 3의 핵심 기능을 TypeScript 코드 예제와 함께 정리합니다.
+
+> **핵심 요약**
+> - **Browser Mode** 정식 GA — 실제 브라우저 환경에서 DOM 테스트
+> - **Pool 전략 재설계** — `vmThreads`, `forks`, `threads` 세밀한 제어
+> - **인라인 스냅샷 & 소프트 어설션** 개선
+> - **Coverage v9** — 더 정확한 Istanbul + V8 하이브리드 커버리지
+> - Jest API 100% 호환으로 마이그레이션 비용 최소화
+
+---
+
+## 목차
+
+1. [왜 Vitest인가 — Jest 대비 무엇이 다른가](#1-왜-vitest인가--jest-대비-무엇이-다른가)
+2. [설치 및 기본 설정](#2-설치-및-기본-설정)
+3. [핵심 API — describe, it, expect](#3-핵심-api--describe-it-expect)
+4. [TypeScript 완벽 지원](#4-typescript-완벽-지원)
+5. [Mocking — vi.fn, vi.mock, vi.spyOn](#5-mocking--vifn-vimock-vispyon)
+6. [Browser Mode — 실제 브라우저 테스트](#6-browser-mode--실제-브라우저-테스트)
+7. [React 컴포넌트 테스팅](#7-react-컴포넌트-테스팅)
+8. [Next.js App Router 통합](#8-nextjs-app-router-통합)
+9. [Pool 설정 최적화](#9-pool-설정-최적화)
+10. [커버리지 설정](#10-커버리지-설정)
+11. [스냅샷 테스트](#11-스냅샷-테스트)
+12. [Jest → Vitest 마이그레이션 가이드](#12-jest--vitest-마이그레이션-가이드)
+
+---
+
+## 1. 왜 Vitest인가 — Jest 대비 무엇이 다른가
+
+Jest는 오랫동안 JavaScript 테스트의 표준이었지만, Vite 기반 프로젝트에서는 근본적인 불일치가 있었습니다. Jest는 CommonJS 기반 변환 파이프라인을 사용하고, Vite는 ESM 네이티브입니다. 이 둘을 함께 쓰면 별도의 Babel 설정, 동기화 문제, 느린 테스트 실행이 발생합니다.
+
+Vitest는 **Vite의 변환 파이프라인을 그대로 재사용**합니다:
+
+| 구분 | Jest | Vitest 3 |
+|------|------|----------|
+| 모듈 시스템 | CommonJS (기본) | ESM 네이티브 |
+| 설정 파일 | `jest.config.ts` | `vitest.config.ts` 또는 `vite.config.ts` 통합 |
+| TypeScript | Babel/ts-jest 필요 | 트랜스파일 없이 바로 실행 |
+| 콜드 스타트 | 3-10초 | < 1초 |
+| Watch 모드 | 파일 전체 재실행 | HMR 기반 변경 파일만 |
+| Browser Mode | jsdom만 (DOM 에뮬레이션) | 실제 브라우저 (Playwright/WebDriver 기반) |
+| API 호환성 | - | Jest API 100% 호환 |
+
+> **체감 속도 차이**: 중규모 프로젝트(300개 테스트)에서 Jest 콜드 스타트 8초 → Vitest 1.2초로 단축된 경험이 일반적입니다.
+
+---
+
+## 2. 설치 및 기본 설정
+
+### 신규 프로젝트
+
+```bash
+# Vite 프로젝트에 추가
+pnpm add -D vitest
+
+# React 프로젝트라면 추가로
+pnpm add -D @vitest/ui @testing-library/react @testing-library/user-event jsdom
+```
+
+### `vitest.config.ts` — 독립 설정 파일
+
+```typescript
+// vitest.config.ts
+import { defineConfig } from 'vitest/config'
+import react from '@vitejs/plugin-react'
+import tsconfigPaths from 'vite-tsconfig-paths'
+
+export default defineConfig({
+  plugins: [react(), tsconfigPaths()],
+  test: {
+    // 테스트 환경 — 'node' | 'jsdom' | 'happy-dom' | 'browser'
+    environment: 'jsdom',
+    
+    // globals: true 설정 시 import 없이 describe/it/expect 사용 가능
+    globals: true,
+    
+    // 각 테스트 파일 실행 전 셋업 파일
+    setupFiles: ['./src/test/setup.ts'],
+    
+    // 파일 패턴 (기본값으로도 충분하지만 명시적으로)
+    include: ['**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['node_modules', 'dist', '.next'],
+  },
+})
+```
+
+### `vite.config.ts` 통합 방식 (권장)
+
+```typescript
+// vite.config.ts — 하나의 파일로 통합 관리
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.ts'],
+  },
+})
+```
+
+### 셋업 파일
+
+```typescript
+// src/test/setup.ts
+import '@testing-library/jest-dom'  // toBeInTheDocument() 등 DOM 매처 추가
+import { afterEach } from 'vitest'
+import { cleanup } from '@testing-library/react'
+
+// 각 테스트 후 DOM 정리
+afterEach(() => {
+  cleanup()
+})
+```
+
+### `package.json` 스크립트
+
+```json
+{
+  "scripts": {
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  }
+}
+```
+
+---
+
+## 3. 핵심 API — describe, it, expect
+
+Vitest API는 Jest와 거의 동일합니다. 기존 Jest 코드가 그대로 동작합니다.
+
+```typescript
+// src/utils/currency.test.ts
+import { describe, it, expect, beforeEach } from 'vitest'
+import { formatCurrency, parseCurrency } from './currency'
+
+describe('formatCurrency', () => {
+  it('원화 형식으로 포맷한다', () => {
+    expect(formatCurrency(10000, 'KRW')).toBe('₩10,000')
+  })
+
+  it('소수점 2자리 USD 포맷', () => {
+    expect(formatCurrency(9.99, 'USD')).toBe('$9.99')
+  })
+
+  it('음수는 괄호로 표시한다', () => {
+    expect(formatCurrency(-5000, 'KRW')).toBe('(₩5,000)')
+  })
+})
+
+describe('parseCurrency', () => {
+  it('₩ 기호와 콤마를 제거하고 숫자를 반환한다', () => {
+    expect(parseCurrency('₩10,000')).toBe(10000)
+  })
+
+  it('유효하지 않은 입력에서 NaN을 반환한다', () => {
+    expect(parseCurrency('not-a-number')).toBeNaN()
+  })
+})
+```
+
+### 비동기 테스트
+
+```typescript
+// src/services/user.test.ts
+import { describe, it, expect, vi } from 'vitest'
+import { fetchUser } from './userService'
+
+describe('fetchUser', () => {
+  it('사용자 데이터를 정상적으로 불러온다', async () => {
+    const user = await fetchUser('user-123')
+
+    expect(user).toMatchObject({
+      id: 'user-123',
+      name: expect.any(String),
+      email: expect.stringContaining('@'),
+    })
+  })
+
+  it('존재하지 않는 사용자에서 에러를 던진다', async () => {
+    await expect(fetchUser('nonexistent')).rejects.toThrow('User not found')
+  })
+})
+```
+
+### 소프트 어설션 (Vitest 3 개선)
+
+소프트 어설션은 하나가 실패해도 나머지 어설션을 계속 실행하여 **모든 실패를 한 번에 파악**합니다:
+
+```typescript
+it('사용자 객체의 모든 필드를 검증한다', () => {
+  const user = { id: '123', name: 'Alice', age: 30, role: 'admin' }
+
+  // expect.soft: 실패해도 테스트 계속 실행
+  expect.soft(user.id).toBe('123')
+  expect.soft(user.name).toBe('Bob')   // 실패 — 하지만 계속 진행
+  expect.soft(user.age).toBe(25)       // 실패 — 하지만 계속 진행
+  expect.soft(user.role).toBe('admin') // 통과
+
+  // 모든 soft 어설션 실행 후 실패 목록을 한꺼번에 보고
+})
+```
+
+---
+
+## 4. TypeScript 완벽 지원
+
+Vitest는 별도의 Babel 설정 없이 TypeScript를 네이티브로 지원합니다.
+
+```typescript
+// src/types/api.ts
+interface ApiResponse<T> {
+  data: T
+  status: number
+  message: string
+}
+
+interface User {
+  id: string
+  name: string
+  email: string
+  createdAt: Date
+}
+
+// src/utils/api.test.ts
+import { describe, it, expect } from 'vitest'
+import { parseApiResponse } from './api'
+
+describe('parseApiResponse', () => {
+  it('타입 안전하게 응답을 파싱한다', () => {
+    const raw = {
+      data: { id: '1', name: 'Alice', email: 'alice@example.com', createdAt: '2026-01-01T00:00:00Z' },
+      status: 200,
+      message: 'OK',
+    }
+
+    // 제네릭 타입 추론 자동 동작
+    const response = parseApiResponse<User>(raw)
+
+    expect(response.data.id).toBe('1')
+    expect(response.data.createdAt).toBeInstanceOf(Date)
+    expect(response.status).toBe(200)
+  })
+})
+```
+
+### tsconfig 설정
+
+```json
+// tsconfig.json — Vitest와 최적으로 동작하는 설정
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "types": ["vitest/globals"]
+  }
+}
+```
+
+---
+
+## 5. Mocking — vi.fn, vi.mock, vi.spyOn
+
+Vitest의 모킹 API는 Jest의 `jest.*`를 `vi.*`로 바꾼 것과 동일합니다.
+
+### `vi.fn` — 함수 모킹
+
+```typescript
+import { describe, it, expect, vi } from 'vitest'
+
+describe('vi.fn 기본 사용', () => {
+  it('호출 횟수와 인자를 추적한다', () => {
+    const mockFn = vi.fn((x: number) => x * 2)
+
+    mockFn(3)
+    mockFn(5)
+
+    expect(mockFn).toHaveBeenCalledTimes(2)
+    expect(mockFn).toHaveBeenCalledWith(3)
+    expect(mockFn).toHaveReturnedWith(10)
+  })
+
+  it('반환값을 커스터마이징한다', () => {
+    const mockFn = vi.fn()
+      .mockReturnValueOnce('첫 번째')
+      .mockReturnValueOnce('두 번째')
+      .mockReturnValue('기본값')
+
+    expect(mockFn()).toBe('첫 번째')
+    expect(mockFn()).toBe('두 번째')
+    expect(mockFn()).toBe('기본값')
+    expect(mockFn()).toBe('기본값')
+  })
+})
+```
+
+### `vi.mock` — 모듈 모킹
+
+```typescript
+// src/services/notification.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// 모듈 전체 모킹 — 파일 최상단에 위치해야 함
+vi.mock('../services/emailService', () => ({
+  sendEmail: vi.fn().mockResolvedValue({ success: true, messageId: 'mock-id' }),
+}))
+
+import { sendEmail } from '../services/emailService'
+import { notifyUser } from './notification'
+
+describe('notifyUser', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('이메일 서비스를 올바른 인자로 호출한다', async () => {
+    await notifyUser({ userId: '123', message: '환영합니다!' })
+
+    expect(sendEmail).toHaveBeenCalledWith({
+      to: expect.stringContaining('@'),
+      subject: expect.any(String),
+      body: '환영합니다!',
+    })
+  })
+})
+```
+
+### `vi.spyOn` — 실제 구현 유지하며 감시
+
+```typescript
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import * as dateUtils from '../utils/date'
+
+describe('vi.spyOn', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('현재 날짜를 고정하여 테스트한다', () => {
+    const fixedDate = new Date('2026-04-14T00:00:00Z')
+    vi.spyOn(global, 'Date').mockImplementation(() => fixedDate)
+
+    const result = dateUtils.getFormattedNow()
+
+    expect(result).toBe('2026년 4월 14일')
+  })
+})
+```
+
+### 타이머 모킹
+
+```typescript
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { debounce } from '../utils/debounce'
+
+describe('debounce', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('지정한 시간 후에만 함수를 실행한다', () => {
+    const fn = vi.fn()
+    const debouncedFn = debounce(fn, 300)
+
+    debouncedFn()
+    debouncedFn()
+    debouncedFn()
+
+    expect(fn).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(300)
+
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+})
+```
+
+---
+
+## 6. Browser Mode — 실제 브라우저 테스트
+
+Vitest 3에서 **Browser Mode가 정식 GA**가 되었습니다. jsdom이 아닌 실제 Chromium/Firefox 환경에서 테스트합니다.
+
+### 설치
+
+```bash
+pnpm add -D @vitest/browser playwright
+npx playwright install chromium
+```
+
+### 설정
+
+```typescript
+// vitest.config.ts
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: {
+    browser: {
+      enabled: true,
+      name: 'chromium',         // 'chromium' | 'firefox' | 'webkit'
+      provider: 'playwright',   // 'playwright' | 'webdriverio'
+      headless: true,           // CI 환경에서는 true
+    },
+    // Browser Mode에서는 environment를 지정하지 않습니다
+  },
+})
+```
+
+### Browser Mode 테스트 예시
+
+```typescript
+// src/components/Modal.browser.test.ts
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import Modal from './Modal'
+
+describe('Modal 컴포넌트 (실제 브라우저)', () => {
+  it('ESC 키로 모달을 닫는다', async () => {
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    render(<Modal isOpen onClose={onClose} title="테스트 모달" />)
+
+    // 실제 브라우저의 키보드 이벤트
+    await user.keyboard('{Escape}')
+
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('포커스 트랩이 작동한다', async () => {
+    const user = userEvent.setup()
+    render(<Modal isOpen onClose={vi.fn()} title="포커스 테스트" />)
+
+    // Tab 키로 포커스 이동 시 모달 내부에서만 순환
+    await user.tab()
+    const focusedEl = document.activeElement
+    expect(screen.getByRole('dialog')).toContainElement(focusedEl as HTMLElement)
+  })
+})
+```
+
+> **언제 Browser Mode를 사용할까?**
+> - Web Crypto API, ResizeObserver, IntersectionObserver 등 jsdom이 지원하지 않는 API 테스트
+> - 실제 CSS 적용 여부, 렌더링 결과 검증
+> - 접근성(A11y) 심층 검증
+
+---
+
+## 7. React 컴포넌트 테스팅
+
+Testing Library와 함께 Vitest를 사용하는 실전 패턴입니다.
+
+```typescript
+// src/components/SearchBar.test.tsx
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import SearchBar from './SearchBar'
+
+describe('SearchBar', () => {
+  it('검색어 입력 후 onSearch가 호출된다', async () => {
+    const user = userEvent.setup()
+    const onSearch = vi.fn()
+
+    render(<SearchBar onSearch={onSearch} placeholder="검색..." />)
+
+    const input = screen.getByPlaceholderText('검색...')
+    await user.type(input, 'Vitest')
+    await user.keyboard('{Enter}')
+
+    expect(onSearch).toHaveBeenCalledWith('Vitest')
+  })
+
+  it('빈 검색어로는 onSearch가 호출되지 않는다', async () => {
+    const user = userEvent.setup()
+    const onSearch = vi.fn()
+
+    render(<SearchBar onSearch={onSearch} />)
+
+    await user.keyboard('{Enter}')
+
+    expect(onSearch).not.toHaveBeenCalled()
+  })
+
+  it('로딩 중에는 입력이 비활성화된다', () => {
+    render(<SearchBar onSearch={vi.fn()} isLoading />)
+
+    expect(screen.getByRole('textbox')).toBeDisabled()
+    expect(screen.getByRole('button', { name: /검색/ })).toBeDisabled()
+  })
+})
+```
+
+### 커스텀 훅 테스팅
+
+```typescript
+// src/hooks/useDebounce.test.ts
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { renderHook, act } from '@testing-library/react'
+import { useDebounce } from './useDebounce'
+
+describe('useDebounce', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('딜레이 전에는 이전 값을 반환한다', () => {
+    const { result } = renderHook(
+      ({ value }) => useDebounce(value, 500),
+      { initialProps: { value: 'initial' } }
+    )
+
+    expect(result.current).toBe('initial')
+  })
+
+  it('딜레이 후에 새 값을 반환한다', () => {
+    const { result, rerender } = renderHook(
+      ({ value }) => useDebounce(value, 500),
+      { initialProps: { value: 'initial' } }
+    )
+
+    rerender({ value: 'updated' })
+    expect(result.current).toBe('initial')
+
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+
+    expect(result.current).toBe('updated')
+  })
+})
+```
+
+---
+
+## 8. Next.js App Router 통합
+
+Next.js 16의 App Router와 Vitest를 연동하는 설정입니다.
+
+### 설치 및 설정
+
+```bash
+pnpm add -D vitest @vitejs/plugin-react vite-tsconfig-paths
+pnpm add -D @testing-library/react @testing-library/user-event @testing-library/jest-dom
+pnpm add -D jsdom
+```
+
+```typescript
+// vitest.config.ts (Next.js 프로젝트)
+import { defineConfig } from 'vitest/config'
+import react from '@vitejs/plugin-react'
+import tsconfigPaths from 'vite-tsconfig-paths'
+
+export default defineConfig({
+  plugins: [react(), tsconfigPaths()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./vitest.setup.ts'],
+    exclude: [
+      '**/node_modules/**',
+      '**/.next/**',
+      '**/e2e/**',
+    ],
+  },
+})
+```
+
+### Server Actions 테스트
+
+```typescript
+// app/actions/createPost.test.ts
+import { describe, it, expect, vi } from 'vitest'
+import { createPost } from './createPost'
+
+// Next.js 서버 전용 모듈 모킹
+vi.mock('next/headers', () => ({
+  cookies: () => ({
+    get: vi.fn().mockReturnValue({ value: 'mock-session' }),
+  }),
+}))
+
+vi.mock('@/lib/db', () => ({
+  db: {
+    post: {
+      create: vi.fn().mockResolvedValue({
+        id: 'new-post-id',
+        title: '테스트 포스트',
+        createdAt: new Date(),
+      }),
+    },
+  },
+}))
+
+describe('createPost Server Action', () => {
+  it('유효한 데이터로 포스트를 생성한다', async () => {
+    const formData = new FormData()
+    formData.append('title', '테스트 포스트')
+    formData.append('content', '내용입니다')
+
+    const result = await createPost({}, formData)
+
+    expect(result.success).toBe(true)
+    expect(result.postId).toBe('new-post-id')
+  })
+
+  it('제목이 없으면 에러를 반환한다', async () => {
+    const formData = new FormData()
+    formData.append('content', '내용만 있음')
+
+    const result = await createPost({}, formData)
+
+    expect(result.success).toBe(false)
+    expect(result.errors?.title).toBeDefined()
+  })
+})
+```
+
+---
+
+## 9. Pool 설정 최적화
+
+Vitest 3는 테스트 실행 방식을 더 세밀하게 제어할 수 있습니다.
+
+```typescript
+// vitest.config.ts
+import { defineConfig } from 'vitest/config'
+import os from 'os'
+
+export default defineConfig({
+  test: {
+    // Pool 종류 선택
+    // 'threads'   — Worker Threads (기본, 빠름, 메모리 공유)
+    // 'forks'     — Child Process (격리성 높음, 메모리 분리)
+    // 'vmThreads' — VM 모듈 기반 (가장 격리, 약간 느림)
+    pool: 'threads',
+
+    poolOptions: {
+      threads: {
+        // CPU 코어 수에 맞게 자동 조정
+        minThreads: 1,
+        maxThreads: Math.max(1, os.cpus().length - 1),
+
+        // 각 Worker가 처리할 최대 파일 수 (메모리 누수 방지)
+        maxConcurrentRuns: 50,
+      },
+    },
+
+    // 테스트 격리 — 각 파일마다 모듈 캐시 초기화
+    isolate: true,
+  },
+})
+```
+
+### Pool 종류별 성능 비교
+
+```
+Pool 종류별 300개 테스트 실행 시간 (참고 수치):
+- threads (기본):   8.2초
+- forks:           11.4초
+- vmThreads:       10.1초
+- singleThread:    28.6초
+```
+
+> **권장 설정**: 대부분의 경우 `threads`가 최적입니다. 테스트 간 전역 상태 오염이 문제라면 `forks`를 사용하세요.
+
+---
+
+## 10. 커버리지 설정
+
+```bash
+pnpm add -D @vitest/coverage-v8
+# 또는
+pnpm add -D @vitest/coverage-istanbul
+```
+
+```typescript
+// vitest.config.ts
+export default defineConfig({
+  test: {
+    coverage: {
+      // 'v8' (빠름, 네이티브) | 'istanbul' (정확, 느림)
+      provider: 'v8',
+      
+      reporter: ['text', 'json', 'html', 'lcov'],
+      
+      // 커버리지 대상 파일
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.d.ts',
+        'src/**/*.test.{ts,tsx}',
+        'src/test/**',
+        'src/**/types.ts',
+      ],
+      
+      // 커버리지 임계값 — 미달 시 CI 실패
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 75,
+        statements: 80,
+      },
+    },
+  },
+})
+```
+
+### 커버리지 실행 및 확인
+
+```bash
+# 텍스트 리포트 출력
+pnpm test:coverage
+
+# HTML 리포트 (coverage/index.html)
+pnpm vitest run --coverage --reporter=html
+```
+
+---
+
+## 11. 스냅샷 테스트
+
+```typescript
+// src/components/Badge.test.tsx
+import { describe, it, expect } from 'vitest'
+import { render } from '@testing-library/react'
+import Badge from './Badge'
+
+describe('Badge 스냅샷', () => {
+  it('기본 배지를 렌더링한다', () => {
+    const { container } = render(<Badge label="New" variant="success" />)
+    expect(container.firstChild).toMatchSnapshot()
+  })
+
+  it('인라인 스냅샷 — 코드 옆에 직접 기록', () => {
+    const { container } = render(<Badge label="Hot" variant="danger" />)
+    
+    // 인라인 스냅샷: 처음 실행 시 자동으로 스냅샷을 코드에 삽입
+    expect(container.firstChild).toMatchInlineSnapshot(`
+      <span
+        class="badge badge--danger"
+      >
+        Hot
+      </span>
+    `)
+  })
+})
+```
+
+### 스냅샷 업데이트
+
+```bash
+# 스냅샷 일괄 업데이트
+pnpm vitest run --update-snapshots
+
+# 특정 테스트만 업데이트
+pnpm vitest run --update-snapshots src/components/Badge.test.tsx
+```
+
+---
+
+## 12. Jest → Vitest 마이그레이션 가이드
+
+대부분의 경우 마이그레이션은 **3단계**로 완료됩니다.
+
+### 1단계 — 패키지 교체
+
+```bash
+# Jest 제거
+pnpm remove jest @jest/globals babel-jest ts-jest jest-environment-jsdom @types/jest
+
+# Vitest 설치
+pnpm add -D vitest @vitest/coverage-v8
+```
+
+### 2단계 — 설정 파일 마이그레이션
+
+```typescript
+// 기존 jest.config.ts → 삭제
+// 새로 생성: vitest.config.ts
+
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: {
+    globals: true,           // jest.fn() → vi.fn() 없이 그대로 사용
+    environment: 'jsdom',
+    setupFiles: ['./jest.setup.ts'],  // 기존 셋업 파일 재사용 가능
+  },
+})
+```
+
+### 3단계 — import 수정
+
+```typescript
+// 변경 전 (Jest)
+import { jest } from '@jest/globals'
+const mockFn = jest.fn()
+jest.mock('./myModule')
+jest.spyOn(obj, 'method')
+jest.useFakeTimers()
+
+// 변경 후 (Vitest)
+import { vi } from 'vitest'
+const mockFn = vi.fn()
+vi.mock('./myModule')
+vi.spyOn(obj, 'method')
+vi.useFakeTimers()
+```
+
+### 주요 API 매핑표
+
+| Jest | Vitest | 비고 |
+|------|--------|------|
+| `jest.fn()` | `vi.fn()` | |
+| `jest.mock()` | `vi.mock()` | |
+| `jest.spyOn()` | `vi.spyOn()` | |
+| `jest.useFakeTimers()` | `vi.useFakeTimers()` | |
+| `jest.clearAllMocks()` | `vi.clearAllMocks()` | |
+| `jest.resetAllMocks()` | `vi.resetAllMocks()` | |
+| `jest.restoreAllMocks()` | `vi.restoreAllMocks()` | |
+| `jest.setTimeout()` | `vi.setConfig({ testTimeout: ... })` | |
+| `@jest/globals` | `vitest` | import 패키지명 |
+
+### 흔한 마이그레이션 이슈
+
+**이슈 1: `__mocks__` 디렉토리 자동 모킹**
+
+Jest의 `__mocks__` 폴더는 Vitest에서도 동작하지만, `vi.mock()` 호출이 필요합니다:
+
+```typescript
+// Vitest에서는 __mocks__ 폴더가 있어도 명시적 호출 필요
+vi.mock('./userService')  // __mocks__/userService.ts 자동 사용
+```
+
+**이슈 2: `moduleNameMapper` → `resolve.alias`**
+
+```typescript
+// jest.config.ts의 moduleNameMapper
+// moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' }
+
+// vitest.config.ts에서는 vite-tsconfig-paths 플러그인 사용
+import tsconfigPaths from 'vite-tsconfig-paths'
+// plugins: [tsconfigPaths()]
+```
+
+**이슈 3: `testEnvironment: 'node'` 파일별 오버라이드**
+
+```typescript
+// 파일 최상단에 주석으로 오버라이드
+// @vitest-environment node
+import { describe, it } from 'vitest'
+// 이 파일만 Node.js 환경으로 실행
+```
+
+---
+
+## 마무리
+
+Vitest 3는 단순히 "빠른 Jest"가 아닙니다. ESM 네이티브 지원, 실제 브라우저 테스팅, Vite 에코시스템과의 완벽한 통합으로 **모던 TypeScript 프로젝트의 테스팅 경험 자체를 재정의**합니다.
+
+특히 이미 Next.js, React, Tailwind CSS로 개발 중이라면 Vitest로의 전환은 거의 마찰이 없습니다. 이 가이드의 마이그레이션 섹션을 참고하여 기존 Jest 테스트 스위트를 최소한의 변경으로 이전해 보세요.
+
+> **다음 단계 추천**
+> - [Vitest 공식 문서](https://vitest.dev) — 최신 API 레퍼런스
+> - Playwright 기반 Browser Mode로 E2E 경계를 단위 테스트까지 확장
+> - CI/CD에서 `--reporter=github-actions` 옵션으로 PR 코멘트에 테스트 결과 자동 게시
