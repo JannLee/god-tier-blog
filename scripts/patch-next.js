@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-require-imports */
 // Applies compatibility patches to next@15.2.x for App Router + output:"export" mode.
 // Issue: Next.js 15 maps /404 and /500 to /_error (Pages Router) even in App Router
 //        projects. /_error imports <Html> from next/document which throws in App Router.
